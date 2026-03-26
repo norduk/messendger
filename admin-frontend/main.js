@@ -782,10 +782,8 @@ function renderInvites(invites) {
       <td>${invite.used_by || '-'}</td>
       <td>
         <div class="actions">
-          ${!invite.is_used ? `
-            <button class="btn btn-danger btn-sm" onclick="deleteInvite('${invite.id}')">Delete</button>
-            <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('${invite.code}')">Copy</button>
-          ` : ''}
+          <button class="btn btn-danger btn-sm" onclick="deleteInvite('${invite.id}')">Delete</button>
+          <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('${invite.code}')">Copy</button>
         </div>
       </td>
     </tr>

@@ -357,7 +357,7 @@ router.post('/invites', inviteValidation, async (req, res) => {
   }
 });
 
-router.delete('/invites/:id', async (req, res) => {
+router.delete('/invites/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     await deleteInvite(id);
@@ -365,7 +365,7 @@ router.delete('/invites/:id', async (req, res) => {
     await query(
       `INSERT INTO admin_logs (admin_id, action, details, ip_address)
        VALUES ($1, 'delete_invite', $2, $3)`,
-      [req.user?.id || null, JSON.stringify({ inviteId: id }), req.ip]
+      [req.user.id, JSON.stringify({ inviteId: id }), req.ip]
     );
 
     res.json({ message: 'Invite deleted' });
