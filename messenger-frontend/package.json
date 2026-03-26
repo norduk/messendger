@@ -1,0 +1,12 @@
+{
+  "name": "secure-messenger-frontend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve .",
+    "build": "echo 'Static files served directly'"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.7.4"
+  }
+}

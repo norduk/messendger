@@ -1,0 +1,50 @@
+# Environment variables (NEVER commit these!)
+.env
+.env.local
+.env.production
+
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build outputs
+dist/
+build/
+*.tgz
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Uploads and temporary files
+uploads/*
+!uploads/.gitkeep
+
+# SSL certificates (keep the directory, not the files)
+ssl/*.crt
+ssl/*.key
+!ssl/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+postgres_data/
+redis_data/
+file_storage/
+
+# Android build outputs
+android/app/build/
+android/.gradle/
+
+# Capacitor
+android/capacitor.settings.gradle
+*.apk

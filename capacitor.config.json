@@ -1,0 +1,13 @@
+{
+  "appId": "com.securemessenger.app",
+  "appName": "SecureMessenger",
+  "webDir": "./messenger-frontend",
+  "server": {
+    "hostname": "192.168.1.36",
+    "port": 3000,
+    "androidScheme": "http"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

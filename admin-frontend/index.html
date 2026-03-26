@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel - SecureMessenger</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles/admin.css">
+</head>
+<body>
+  <div id="login-screen" class="login-screen">
+    <div class="login-box">
+      <div class="login-logo">🛡️ Admin</div>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="login-name">Имя администратора</label>
+          <input type="text" id="login-name" required placeholder="Введите имя">
+        </div>
+        <div class="form-group">
+          <label for="login-password">Пароль</label>
+          <input type="password" id="login-password" required placeholder="Введите пароль">
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">Войти</button>
+      </form>
+      <div id="login-error" class="error-message"></div>
+    </div>
+  </div>
+
+  <div id="admin-screen" style="display: none;">
+    <aside class="admin-sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-icon">🛡️</span>
+          <span class="logo-text">Admin</span>
+        </div>
+      </div>
+      
+      <nav class="admin-nav">
+        <a href="#" class="nav-item active" data-page="dashboard">
+          <span class="nav-icon">📊</span>
+          <span>Dashboard</span>
+        </a>
+        <a href="#" class="nav-item" data-page="users">
+          <span class="nav-icon">👥</span>
+          <span>Users</span>
+        </a>
+        <a href="#" class="nav-item" data-page="invites">
+          <span class="nav-icon">🎫</span>
+          <span>Invites</span>
+        </a>
+        <a href="#" class="nav-item" data-page="logs">
+          <span class="nav-icon">📋</span>
+          <span>Logs</span>
+        </a>
+        <a href="#" class="nav-item" data-page="health">
+          <span class="nav-icon">💚</span>
+          <span>Health</span>
+        </a>
+        <a href="#" class="nav-item" data-page="settings">
+          <span class="nav-icon">⚙️</span>
+          <span>Settings</span>
+        </a>
+      </nav>
+      
+      <div class="sidebar-footer">
+        <div class="admin-info" id="admin-info">
+          <span id="admin-name">Admin</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="logout-btn">Выйти</button>
+        <div class="connection-status" id="connection-status">
+          <span class="status-dot"></span>
+          <span>Connected</span>
+        </div>
+      </div>
+    </aside>
+    
+    <main class="admin-main">
+      <header class="admin-header">
+        <h1 id="page-title">Dashboard</h1>
+        <div class="header-actions">
+          <button class="btn btn-secondary" id="refresh-btn">🔄 Refresh</button>
+        </div>
+      </header>
+      
+      <div class="admin-content" id="content">
+        <div class="loading">Loading...</div>
+      </div>
+    </main>
+  </div>
+  
+  <div class="modal" id="modal">
+    <div class="modal-content">
+      <button class="modal-close">&times;</button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+  
+  <div class="toast-container" id="toast-container"></div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

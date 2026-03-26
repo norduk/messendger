@@ -1,0 +1,17 @@
+FROM node:20-alpine
+
+RUN apk add --no-cache python3 make g++ vips-dev
+
+WORKDIR /app
+
+COPY file-service/package*.json ./
+
+RUN npm install
+
+COPY file-service/src ./src
+
+RUN mkdir -p /app/uploads && chmod 755 /app/uploads
+
+EXPOSE 3003
+
+CMD ["node", "src/index.js"]

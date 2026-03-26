@@ -1,0 +1,16 @@
+FROM nginx:alpine
+
+RUN apk add --no-cache gettext
+
+COPY admin-frontend/index.html /usr/share/nginx/html/
+COPY admin-frontend/styles /usr/share/nginx/html/styles/
+COPY admin-frontend/main.js /usr/share/nginx/html/main.js.template
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY admin-substitute.sh /docker-entrypoint.d/99-substitute.sh
+
+RUN chmod +x /docker-entrypoint.d/99-substitute.sh
+
+ENV ADMIN_API_KEY=default-key
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

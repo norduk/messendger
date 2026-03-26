@@ -1,0 +1,18 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache curl python3 make g++
+
+COPY backend/package*.json ./
+RUN npm install --omit=dev
+
+COPY backend/src ./src
+COPY messenger-frontend ./messenger-frontend
+COPY ssl ./ssl
+
+RUN mkdir -p uploads logs && chmod 755 uploads logs
+
+EXPOSE 3000 3443
+
+CMD ["node", "src/index.js"]

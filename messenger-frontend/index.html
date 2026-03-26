@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SecureMessenger</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles/main.css">
+  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <div id="auth-screen" class="screen active">
+      <div class="auth-container">
+        <div class="logo">
+          <div class="logo-icon">🔒</div>
+          <h1>SecureMessenger</h1>
+        </div>
+        
+        <div class="auth-tabs">
+          <button class="tab-btn active" data-tab="login">Вход</button>
+          <button class="tab-btn" data-tab="register">Регистрация</button>
+        </div>
+
+        <form id="login-form" class="auth-form active">
+          <div class="form-group">
+            <label for="login-name">Имя</label>
+            <input type="text" id="login-name" required placeholder="Ваше имя">
+          </div>
+          <div class="form-group">
+            <label for="login-password">Пароль</label>
+            <input type="password" id="login-password" required placeholder="••••••••">
+          </div>
+          <button type="submit" class="btn btn-primary">Войти</button>
+        </form>
+
+        <form id="register-form" class="auth-form">
+          <div class="form-group">
+            <label for="register-name">Имя</label>
+            <input type="text" id="register-name" required placeholder="Ваше имя">
+          </div>
+          <div class="form-group">
+            <label for="register-password">Пароль</label>
+            <input type="password" id="register-password" required minlength="8" placeholder="Минимум 8 символов">
+          </div>
+          <div class="form-group">
+            <label for="register-invite">Код приглашения</label>
+            <input type="text" id="register-invite" required placeholder="XXXX-XXXX-XXXX-XXXX" pattern="[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}">
+          </div>
+          <button type="submit" class="btn btn-primary">Создать аккаунт</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="main-screen" class="screen">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="user-info">
+            <div class="avatar" id="current-user-avatar">U</div>
+            <div class="user-details">
+              <span class="user-name" id="current-user-name">Пользователь</span>
+              <span class="user-status online">В сети</span>
+            </div>
+          </div>
+          <button class="btn-icon" id="settings-btn" title="Настройки">⚙️</button>
+        </div>
+        
+        <div class="search-container">
+          <input type="text" id="search-input" placeholder="Поиск или новый чат...">
+          <button class="btn-icon" id="search-btn">🔍</button>
+        </div>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-chat-tab="chats">Чаты</button>
+          <button class="tab-btn" data-chat-tab="requests">Запросы</button>
+        </div>
+
+        <div id="chats-list" class="contacts-list"></div>
+        <div id="requests-list" class="contacts-list" style="display: none;"></div>
+
+        <button class="btn btn-primary add-friend-btn" id="add-friend-btn">+ Добавить друга</button>
+      </aside>
+
+      <main class="chat-area" id="chat-area">
+        <div class="empty-state">
+          <div class="empty-icon">💬</div>
+          <h2>Выберите чат</h2>
+          <p>Выберите контакт слева чтобы начать общение</p>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-container">
+    <div class="modal-content">
+      <button class="modal-close">&times;</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

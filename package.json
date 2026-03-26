@@ -1,0 +1,17 @@
+{
+  "name": "messendger",
+  "version": "1.0.0",
+  "description": "Приватный мессенджер с end-to-end шифрованием. Регистрация только по инвайтам.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0"
+  }
+}

@@ -1,0 +1,155 @@
+services:
+  messenger:
+    build:
+      context: .
+      dockerfile: Dockerfile.messenger
+    container_name: secure_messenger
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+      - "${HTTPS_PORT:-3443}:${HTTPS_PORT:-3443}"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - PORT=${PORT}
+      - HTTPS_PORT=${HTTPS_PORT}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
+      - UPLOAD_DIR=${UPLOAD_DIR}
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE}
+      - SYNC_URL=${SYNC_URL}
+      - FILE_ENCRYPTION_KEY=${FILE_ENCRYPTION_KEY}
+      - CORS_ORIGIN=${CORS_ORIGIN}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./ssl:/app/ssl
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - messenger-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "--spider", "-q", "https://localhost:${HTTPS_PORT:-3443}/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  sync:
+    build:
+      context: .
+      dockerfile: Dockerfile.sync
+    container_name: secure_messenger_sync
+    ports:
+      - "${SYNC_PORT:-3002}:${SYNC_PORT:-3002}"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - SYNC_PORT=${SYNC_PORT}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+    depends_on:
+      - redis
+    networks:
+      - messenger-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:${SYNC_PORT:-3002}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  files:
+    build:
+      context: .
+      dockerfile: Dockerfile.file
+    container_name: secure_messenger_files
+    ports:
+      - "${FILE_PORT:-3003}:${FILE_PORT:-3003}"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - PORT=${FILE_PORT}
+      - UPLOAD_DIR=${UPLOAD_DIR}
+      - ENCRYPTION_KEY=${FILE_ENCRYPTION_KEY}
+    volumes:
+      - file_storage:/app/uploads
+    networks:
+      - messenger-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:${FILE_PORT:-3003}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile.admin
+    container_name: secure_messenger_admin
+    ports:
+      - "${ADMIN_PORT:-3001}:80"
+    env_file:
+      - .env
+    depends_on:
+      - messenger
+    networks:
+      - messenger-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: messenger_postgres
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/db/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - messenger-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-messenger}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: messenger_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - messenger-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  file_storage:
+
+networks:
+  messenger-network:
+    driver: bridge
