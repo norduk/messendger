@@ -27,8 +27,8 @@ export default {
   jwt: {
     secret: required('JWT_SECRET', 'dev-secret-must-be-changed'),
     refreshSecret: required('JWT_REFRESH_SECRET', 'dev-refresh-secret-must-be-changed'),
-    accessExpiresIn: '15m',
-    refreshExpiresIn: '7d'
+    accessExpiresIn: '24h',
+    refreshExpiresIn: '30d'
   },
   
   admin: {

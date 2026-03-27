@@ -11,6 +11,7 @@ let lastSyncTime = null;
 let selectedMessages = new Set();
 let isSelectionMode = false;
 let deletedMessageIds = new Set();
+let tokenRefreshInterval = null;
 
 function getStorageKey(userId) {
   return `messenger_messages_${userId}`;
@@ -67,6 +68,37 @@ function saveLastSyncTime(userId) {
   localStorage.setItem(getLastSyncKey(userId), Date.now().toString());
 }
 
+function startTokenRefresh() {
+  if (tokenRefreshInterval) clearInterval(tokenRefreshInterval);
+  
+  tokenRefreshInterval = setInterval(async () => {
+    try {
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.accessToken) {
+          accessToken = data.accessToken;
+          localStorage.setItem('accessToken', accessToken);
+          console.log('Token refreshed');
+        }
+      }
+    } catch (e) {
+      console.error('Token refresh failed:', e);
+    }
+  }, 12 * 60 * 60 * 1000);
+}
+
+function stopTokenRefresh() {
+  if (tokenRefreshInterval) {
+    clearInterval(tokenRefreshInterval);
+    tokenRefreshInterval = null;
+  }
+}
+
 const api = {
   async request(endpoint, options = {}) {
     const headers = {
@@ -78,7 +110,7 @@ const api = {
       headers['Authorization'] = `Bearer ${accessToken}`;
     }
     
-    const response = await fetch(`${API_URL}${endpoint}`, {
+    let response = await fetch(`${API_URL}${endpoint}`, {
       ...options,
       headers,
       credentials: 'include'
@@ -88,13 +120,14 @@ const api = {
       const refreshed = await this.refreshToken();
       if (refreshed) {
         headers['Authorization'] = `Bearer ${accessToken}`;
-        const retryResponse = await fetch(`${API_URL}${endpoint}`, {
+        response = await fetch(`${API_URL}${endpoint}`, {
           ...options,
-          headers
+          headers,
+          credentials: 'include'
         });
-        return retryResponse.json();
       } else {
         logout();
+        return { error: 'Session expired' };
       }
     }
     
@@ -434,6 +467,7 @@ async function initApp() {
     setupSocket();
     setupChatTabs();
     setupUserAvatarClick();
+    startTokenRefresh();
     
     if (currentUser?.id) {
       messages = loadMessagesFromStorage(currentUser.id);
@@ -1523,6 +1557,7 @@ function closeModal() {
 
 function logout() {
   stopPeriodicSync();
+  stopTokenRefresh();
   accessToken = null;
   syncToken = null;
   localStorage.removeItem('accessToken');
