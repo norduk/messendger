@@ -1,12 +1,33 @@
 services:
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    container_name: messenger_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - messenger
+      - sync
+      - files
+      - admin
+    networks:
+      - messenger-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   messenger:
     build:
       context: .
       dockerfile: Dockerfile.messenger
     container_name: secure_messenger
-    ports:
-      - "${PORT:-3000}:${PORT:-3000}"
-      - "${HTTPS_PORT:-3443}:${HTTPS_PORT:-3443}"
     env_file:
       - .env
     environment:
@@ -34,7 +55,7 @@ services:
       - messenger-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-check-certificate", "--spider", "-q", "https://localhost:${HTTPS_PORT:-3443}/api/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -44,8 +65,6 @@ services:
       context: .
       dockerfile: Dockerfile.sync
     container_name: secure_messenger_sync
-    ports:
-      - "${SYNC_PORT:-3002}:${SYNC_PORT:-3002}"
     env_file:
       - .env
     environment:
@@ -60,7 +79,7 @@ services:
       - messenger-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:${SYNC_PORT:-3002}/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3002/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -70,8 +89,6 @@ services:
       context: .
       dockerfile: Dockerfile.file
     container_name: secure_messenger_files
-    ports:
-      - "${FILE_PORT:-3003}:${FILE_PORT:-3003}"
     env_file:
       - .env
     environment:
@@ -85,7 +102,7 @@ services:
       - messenger-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:${FILE_PORT:-3003}/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3003/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -95,12 +112,8 @@ services:
       context: .
       dockerfile: Dockerfile.admin
     container_name: secure_messenger_admin
-    ports:
-      - "${ADMIN_PORT:-3001}:80"
     env_file:
       - .env
-    depends_on:
-      - messenger
     networks:
       - messenger-network
     restart: unless-stopped
@@ -117,8 +130,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/src/db/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432"
     networks:
       - messenger-network
     restart: unless-stopped
@@ -134,8 +145,6 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
     networks:
       - messenger-network
     restart: unless-stopped
