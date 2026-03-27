@@ -244,12 +244,37 @@ function init() {
   setupSearch();
   setupModals();
   setupMessageDelete();
+  setupMobileMenu();
   
   if (accessToken) {
     loadUser();
   } else {
     showScreen('auth');
   }
+}
+
+function setupMobileMenu() {
+  const sidebar = document.querySelector('.sidebar');
+  const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+  
+  let overlay = document.querySelector('.mobile-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'mobile-overlay';
+    document.getElementById('main-screen').appendChild(overlay);
+  }
+  
+  if (mobileMenuBtn) {
+    mobileMenuBtn.addEventListener('click', () => {
+      sidebar.classList.add('open');
+      overlay.classList.add('active');
+    });
+  }
+  
+  overlay.addEventListener('click', () => {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('active');
+  });
 }
 
 function setupAuthTabs() {
@@ -393,7 +418,12 @@ async function initApp() {
 
 function updateUserUI() {
   document.getElementById('current-user-name').textContent = currentUser.displayName || currentUser.email;
-  document.getElementById('current-user-avatar').textContent = (currentUser.displayName || currentUser.email).charAt(0).toUpperCase();
+  const avatarEl = document.getElementById('current-user-avatar');
+  if (currentUser.avatarUrl) {
+    avatarEl.innerHTML = `<img src="${currentUser.avatarUrl}" class="avatar-img" alt="Avatar">`;
+  } else {
+    avatarEl.textContent = (currentUser.displayName || currentUser.email).charAt(0).toUpperCase();
+  }
 }
 
 function setupSocket() {
@@ -502,7 +532,7 @@ function renderFriends() {
   
   list.innerHTML = friends.map(friend => `
     <div class="contact-item ${selectedFriendId === friend.id ? 'active' : ''}" data-id="${friend.id}">
-      <div class="avatar small">${(friend.display_name || friend.email).charAt(0).toUpperCase()}</div>
+      <div class="avatar small ${friend.status === 'online' ? 'online' : ''}">${friend.avatarUrl ? `<img src="${friend.avatarUrl}" class="avatar-img" alt="Avatar">` : (friend.display_name || friend.email).charAt(0).toUpperCase()}</div>
       <div class="contact-info">
         <div class="contact-name">${friend.display_name || friend.email}</div>
         <div class="contact-preview">${getLastMessagePreview(friend.id)}</div>
@@ -526,6 +556,9 @@ async function selectChat(friendId) {
   document.querySelectorAll('.contact-item').forEach(item => {
     item.classList.toggle('active', item.dataset.id === friendId);
   });
+  
+  document.querySelector('.sidebar').classList.remove('open');
+  document.querySelector('.mobile-overlay')?.classList.remove('active');
   
   if (!messages[friendId]) {
     const data = await api.get(`/messages/${friendId}?limit=50`);
@@ -554,8 +587,8 @@ function renderChatArea(friend) {
   const chatArea = document.getElementById('chat-area');
   chatArea.innerHTML = `
     <div class="chat-header">
-      <div class="chat-header-info">
-        <div class="avatar small">${(friend.display_name || friend.email).charAt(0).toUpperCase()}</div>
+      <div class="chat-header-info" id="chat-header-info" data-friend-id="${friend.id}" style="cursor: pointer;">
+        <div class="avatar small ${friend.status === 'online' ? 'online' : ''}">${friend.avatarUrl ? `<img src="${friend.avatarUrl}" class="avatar-img" alt="Avatar">` : (friend.display_name || friend.email).charAt(0).toUpperCase()}</div>
         <div>
           <div class="user-name">${friend.display_name || friend.email}</div>
           <div class="user-status">${friend.status === 'online' ? 'В сети' : 'Не в сети'}</div>
@@ -584,6 +617,8 @@ function renderChatArea(friend) {
   
   setupMessageInput();
   setupSelectionMode();
+  
+  document.getElementById('chat-header-info').addEventListener('click', () => showFriendProfile(friend.id));
   
   document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
 }
@@ -1129,6 +1164,20 @@ function setupModals() {
     
     showModal('Настройки', `
       <div class="settings-section">
+        <h3>Аватар</h3>
+        <div class="avatar-upload-container">
+          <div class="avatar-preview-large" id="avatar-preview">
+            ${currentUser.avatarUrl ? 
+              `<img src="${currentUser.avatarUrl}" class="avatar-preview-img" alt="Avatar">` : 
+              `<div class="avatar-preview-placeholder">${(currentUser.displayName || currentUser.email).charAt(0).toUpperCase()}</div>`
+            }
+          </div>
+          <input type="file" id="avatar-input" class="file-input" accept="image/jpeg,image/png,image/gif,image/webp">
+          <button class="btn btn-secondary btn-sm" id="avatar-upload-btn" style="margin-top: 12px;">Загрузить аватар</button>
+          <div class="avatar-hint">Макс. 5 МБ</div>
+        </div>
+      </div>
+      <div class="settings-section">
         <h3>Аккаунт</h3>
         <div class="settings-item">
           <span>Ваш ID</span>
@@ -1158,6 +1207,56 @@ function setupModals() {
       <button class="btn btn-primary" id="save-settings" style="margin-top: 20px;">Сохранить</button>
       <button class="btn btn-secondary" id="logout-btn" style="margin-top: 10px; width: 100%;">Выйти</button>
     `);
+    
+    document.getElementById('avatar-upload-btn').addEventListener('click', () => {
+      document.getElementById('avatar-input').click();
+    });
+    
+    document.getElementById('avatar-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('Файл слишком большой (макс. 5 МБ)', 'error');
+        return;
+      }
+      
+      const formData = new FormData();
+      formData.append('avatar', file);
+      
+      const btn = document.getElementById('avatar-upload-btn');
+      btn.disabled = true;
+      btn.textContent = 'Загрузка...';
+      
+      try {
+        const response = await fetch(`${API_URL}/users/avatar`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: formData
+        });
+        
+        const data = await response.json();
+        if (data.user) {
+          currentUser.avatarUrl = data.user.avatarUrl;
+          updateUserUI();
+          
+          const preview = document.getElementById('avatar-preview');
+          preview.innerHTML = `<img src="${data.user.avatarUrl}" class="avatar-preview-img" alt="Avatar">`;
+          
+          showToast('Аватар обновлён', 'success');
+        } else {
+          showToast(data.error || 'Ошибка загрузки', 'error');
+        }
+      } catch (e) {
+        console.error('Avatar upload error:', e);
+        showToast('Ошибка загрузки аватара', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Загрузить аватар';
+      }
+    });
     
     document.getElementById('save-settings').addEventListener('click', async () => {
       const displayName = document.getElementById('settings-name').value;
@@ -1274,6 +1373,70 @@ function getUnreadCount(friendId) {
   return (messages[friendId] || []).filter(m => 
     m.recipient_id === currentUser?.id && m.status !== 'read'
   ).length;
+}
+
+async function showFriendProfile(friendId) {
+  const friend = friends.find(f => f.id === friendId);
+  if (!friend) return;
+  
+  let isOnline = false;
+  let lastSeen = null;
+  
+  try {
+    const statusData = await api.get(`/users/online-status/${friendId}`);
+    isOnline = statusData.online;
+    
+    const userData = await api.get(`/users/${friendId}`);
+    if (userData.user?.lastSeen) {
+      lastSeen = userData.user.lastSeen;
+    }
+  } catch (e) {
+    console.error('Failed to get online status:', e);
+  }
+  
+  const lastSeenText = isOnline ? 'В сети' : (lastSeen ? formatLastSeen(lastSeen) : 'Недавно');
+  
+  showModal('Профиль', `
+    <div class="profile-container">
+      <div class="profile-avatar">
+        ${friend.avatarUrl ? 
+          `<img src="${friend.avatarUrl}" class="profile-avatar-img" alt="Avatar">` : 
+          `<div class="profile-avatar-placeholder">${(friend.display_name || friend.email).charAt(0).toUpperCase()}</div>`
+        }
+      </div>
+      <div class="profile-info">
+        <div class="profile-name">${friend.display_name || friend.email}</div>
+        <div class="profile-status ${isOnline ? 'online' : ''}">${isOnline ? '● В сети' : '○ Не в сети'}</div>
+        <div class="profile-details">
+          <div class="profile-item">
+            <span class="profile-label">ID</span>
+            <span class="profile-value" style="font-family: monospace; font-size: 11px; cursor: pointer;" title="Нажмите чтобы скопировать" onclick="navigator.clipboard.writeText('${friend.id}'); showToast('ID скопирован', 'success');">${friend.id}</span>
+          </div>
+          ${friend.email ? `<div class="profile-item">
+            <span class="profile-label">Email</span>
+            <span class="profile-value">${friend.email}</span>
+          </div>` : ''}
+          <div class="profile-item">
+            <span class="profile-label">Последний онлайн</span>
+            <span class="profile-value">${lastSeenText}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+function formatLastSeen(date) {
+  if (!date) return 'Недавно';
+  const d = new Date(date);
+  const now = new Date();
+  const diff = now - d;
+  
+  if (diff < 60000) return 'Только что';
+  if (diff < 3600000) return Math.floor(diff / 60000) + ' мин. назад';
+  if (diff < 86400000) return 'Сегодня в ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (diff < 172800000) return 'Вчера в ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function updateChatPreview(friendId) {
