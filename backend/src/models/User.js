@@ -36,7 +36,7 @@ export const findUserByEmail = async (email) => {
 
 export const findUserById = async (id) => {
   const result = await query(
-    'SELECT id, public_key, display_name, avatar_url, is_blocked, is_admin, last_seen, created_at FROM users WHERE id = $1',
+    'SELECT id, public_key, display_name, nickname, email, phone, avatar_url, is_blocked, is_admin, last_seen, created_at FROM users WHERE id = $1',
     [id]
   );
   return result.rows[0];

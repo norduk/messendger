@@ -64,6 +64,9 @@ router.post('/register', async (req, res) => {
       user: {
         id: user.id,
         displayName: user.display_name,
+        nickname: user.nickname,
+        email: user.email,
+        phone: user.phone,
         avatarUrl: user.avatar_url,
         publicKey: user.public_key,
         isAdmin: user.is_admin
@@ -124,6 +127,9 @@ router.post('/login', async (req, res) => {
       user: {
         id: user.id,
         displayName: user.display_name,
+        nickname: user.nickname,
+        email: user.email,
+        phone: user.phone,
         avatarUrl: user.avatar_url,
         publicKey: user.public_key,
         isAdmin: user.is_admin
@@ -170,6 +176,9 @@ router.get('/me', authenticate, async (req, res) => {
     user: {
       id: req.user.id,
       displayName: req.user.display_name,
+      nickname: req.user.nickname,
+      email: req.user.email,
+      phone: req.user.phone,
       avatarUrl: req.user.avatar_url,
       publicKey: req.user.public_key,
       isAdmin: req.user.is_admin

@@ -159,7 +159,7 @@ app.get('/api/sync/messages', authenticate, async (req, res) => {
 
 app.post('/api/sync/sync', authenticate, async (req, res) => {
   try {
-    const { messages, lastSync } = req.body;
+    const { messages, lastSync, deletedIds } = req.body;
     
     const stored = await redis.get(`messages:${req.userId}`);
     let serverMessages = [];
@@ -169,15 +169,40 @@ app.post('/api/sync/sync', authenticate, async (req, res) => {
       serverMessages = decrypt(encrypted, req.syncKey);
     }
     
+    const deletedStored = await redis.get(`deleted:${req.userId}`);
+    let deletedMessages = deletedStored ? JSON.parse(decrypt(JSON.parse(deletedStored), req.syncKey)) : [];
+    
+    if (deletedIds && deletedIds.length > 0) {
+      for (const id of deletedIds) {
+        if (!deletedMessages.includes(id)) {
+          deletedMessages.push(id);
+        }
+      }
+      
+      const encryptedDeleted = encrypt(deletedMessages, req.syncKey);
+      await redis.set(
+        `deleted:${req.userId}`,
+        JSON.stringify(encryptedDeleted),
+        'EX',
+        60 * 60 * 24 * 30
+      );
+    }
+    
     const clientMessages = messages || [];
     
     const serverMap = new Map(serverMessages.map(m => [m.id, m]));
     const clientMap = new Map(clientMessages.map(m => [m.id, m]));
     
-    const merged = [...serverMessages];
+    const merged = [];
+    
+    for (const msg of serverMessages) {
+      if (!deletedMessages.includes(msg.id)) {
+        merged.push(msg);
+      }
+    }
     
     for (const msg of clientMessages) {
-      if (!serverMap.has(msg.id)) {
+      if (!serverMap.has(msg.id) && !deletedMessages.includes(msg.id)) {
         merged.push(msg);
       }
     }
@@ -194,6 +219,7 @@ app.post('/api/sync/sync', authenticate, async (req, res) => {
     
     res.json({
       messages: merged,
+      deletedIds: deletedMessages,
       syncedAt: Date.now()
     });
   } catch (error) {

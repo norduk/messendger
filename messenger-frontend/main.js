@@ -10,6 +10,7 @@ let messages = {};
 let lastSyncTime = null;
 let selectedMessages = new Set();
 let isSelectionMode = false;
+let deletedMessageIds = new Set();
 
 function getStorageKey(userId) {
   return `messenger_messages_${userId}`;
@@ -19,6 +20,9 @@ function getSyncKeyKey(userId) {
 }
 function getLastSyncKey(userId) {
   return `messenger_last_sync_${userId}`;
+}
+function getDeletedKey(userId) {
+  return `messenger_deleted_${userId}`;
 }
 
 function loadMessagesFromStorage(userId) {
@@ -35,6 +39,23 @@ function saveMessagesToStorage(userId) {
     localStorage.setItem(getStorageKey(userId), JSON.stringify(messages));
   } catch (e) {
     console.error('Failed to save messages:', e);
+  }
+}
+
+function loadDeletedIds(userId) {
+  try {
+    const stored = localStorage.getItem(getDeletedKey(userId));
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function saveDeletedIds(userId) {
+  try {
+    localStorage.setItem(getDeletedKey(userId), JSON.stringify([...deletedMessageIds]));
+  } catch (e) {
+    console.error('Failed to save deleted ids:', e);
   }
 }
 
@@ -152,12 +173,13 @@ const syncApi = {
     return this.request('/api/sync/messages');
   },
   
-  async sync(localMessages) {
+  async sync(localMessages, deletedIds = []) {
     return this.request('/api/sync/sync', {
       method: 'POST',
       body: JSON.stringify({
         messages: localMessages,
-        lastSync: lastSyncTime
+        lastSync: lastSyncTime,
+        deletedIds
       })
     });
   }
@@ -190,11 +212,20 @@ async function performSync() {
   
   try {
     const allMessages = Object.values(messages).flat();
-    const result = await syncApi.sync(allMessages);
+    const result = await syncApi.sync(allMessages, [...deletedMessageIds]);
+    
+    if (result.deletedIds) {
+      for (const id of result.deletedIds) {
+        deletedMessageIds.add(id);
+      }
+      saveDeletedIds(currentUser.id);
+    }
     
     if (result.messages) {
       const merged = {};
       for (const msg of result.messages) {
+        if (deletedMessageIds.has(msg.id)) continue;
+        
         const friendId = msg.sender_id === currentUser.id ? msg.recipient_id : msg.sender_id;
         if (!merged[friendId]) merged[friendId] = [];
         
@@ -406,6 +437,7 @@ async function initApp() {
     
     if (currentUser?.id) {
       messages = loadMessagesFromStorage(currentUser.id);
+      deletedMessageIds = loadDeletedIds(currentUser.id);
       lastSyncTime = loadLastSyncTime(currentUser.id);
     }
     
@@ -721,8 +753,12 @@ async function deleteSelectedMessages() {
     if (result.deleted !== undefined) {
       messageIds.forEach(id => {
         messages[selectedFriendId] = messages[selectedFriendId].filter(m => m.id !== id);
+        deletedMessageIds.add(id);
       });
-      if (currentUser?.id) saveMessagesToStorage(currentUser.id);
+      if (currentUser?.id) {
+        saveMessagesToStorage(currentUser.id);
+        saveDeletedIds(currentUser.id);
+      }
       isSelectionMode = false;
       selectedMessages.clear();
       document.getElementById('selection-bar').style.display = 'none';
@@ -914,7 +950,11 @@ async function deleteMessage(msgId, friendId) {
     const result = await api.delete(`/messages/${msgId}`);
     if (result.message) {
       messages[friendId] = messages[friendId].filter(m => m.id !== msgId);
-      if (currentUser?.id) saveMessagesToStorage(currentUser.id);
+      deletedMessageIds.add(msgId);
+      if (currentUser?.id) {
+        saveMessagesToStorage(currentUser.id);
+        saveDeletedIds(currentUser.id);
+      }
       renderMessages(friendId);
       showToast('Сообщение удалено', 'success');
     } else {
