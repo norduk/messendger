@@ -505,6 +505,13 @@ body {
   margin-bottom: 4px;
 }
 
+.profile-display-nickname {
+  font-size: 15px;
+  color: var(--primary);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
 .profile-status-text {
   font-size: 13px;
   color: var(--text-secondary);
@@ -1273,6 +1280,13 @@ body {
   font-size: 18px;
   font-weight: 600;
   margin-bottom: 4px;
+}
+
+.profile-nickname {
+  font-size: 14px;
+  color: var(--primary);
+  margin-bottom: 4px;
+  font-weight: 500;
 }
 
 .profile-status {

@@ -44,6 +44,7 @@ router.get('/search', authenticate, async (req, res) => {
         id: u.id,
         email: u.email,
         displayName: u.display_name,
+        nickname: u.nickname,
         avatarUrl: u.avatar_url,
         lastSeen: u.last_seen
       }))
@@ -63,6 +64,7 @@ router.get('/:id', authenticate, async (req, res) => {
           id: req.user.id,
           email: req.user.email,
           displayName: req.user.display_name,
+          nickname: req.user.nickname,
           avatarUrl: req.user.avatar_url,
           publicKey: req.user.public_key,
           lastSeen: req.user.last_seen
@@ -81,6 +83,7 @@ router.get('/:id', authenticate, async (req, res) => {
         id: user.id,
         email: user.email,
         displayName: user.display_name,
+        nickname: user.nickname,
         avatarUrl: user.avatar_url,
         publicKey: user.public_key,
         lastSeen: user.last_seen
@@ -94,8 +97,8 @@ router.get('/:id', authenticate, async (req, res) => {
 
 router.put('/profile', authenticate, async (req, res) => {
   try {
-    const { displayName, avatarUrl, email, phone } = req.body;
-    const user = await updateUser(req.user.id, { displayName, avatarUrl, email, phone });
+    const { displayName, avatarUrl, email, phone, nickname } = req.body;
+    const user = await updateUser(req.user.id, { displayName, avatarUrl, email, phone, nickname });
     
     await updateLastSeen(req.user.id);
 
@@ -105,12 +108,16 @@ router.put('/profile', authenticate, async (req, res) => {
         email: user.email,
         phone: user.phone,
         displayName: user.display_name,
+        nickname: user.nickname,
         avatarUrl: user.avatar_url,
         publicKey: user.public_key
       }
     });
   } catch (error) {
     console.error('Update profile error:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'Этот никнейм уже занят' });
+    }
     res.status(500).json({ error: 'Failed to update profile' });
   }
 });

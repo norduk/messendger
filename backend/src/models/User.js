@@ -42,7 +42,7 @@ export const findUserById = async (id) => {
   return result.rows[0];
 };
 
-export const updateUser = async (id, { displayName, avatarUrl, publicKey, email, phone }) => {
+export const updateUser = async (id, { displayName, avatarUrl, publicKey, email, phone, nickname }) => {
   const result = await query(
     `UPDATE users 
      SET display_name = COALESCE($2, display_name),
@@ -50,10 +50,11 @@ export const updateUser = async (id, { displayName, avatarUrl, publicKey, email,
          public_key = COALESCE($4, public_key),
          email = COALESCE($5, email),
          phone = COALESCE($6, phone),
+         nickname = COALESCE($7, nickname),
          updated_at = NOW()
      WHERE id = $1
-     RETURNING id, email, phone, public_key, display_name, avatar_url`,
-    [id, displayName, avatarUrl, publicKey, email, phone]
+     RETURNING id, email, phone, public_key, display_name, avatar_url, nickname`,
+    [id, displayName, avatarUrl, publicKey, email, phone, nickname]
   );
   return result.rows[0];
 };
@@ -72,8 +73,9 @@ export const setAdmin = async (id, isAdmin = true) => {
 
 export const searchUsers = async (queryString, limit = 20) => {
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(queryString);
+  const cleanQuery = queryString.replace('@', '');
   
-  let queryStr = `SELECT id, email, display_name, avatar_url, last_seen FROM users WHERE is_blocked = FALSE`;
+  let queryStr = `SELECT id, email, display_name, nickname, avatar_url, last_seen FROM users WHERE is_blocked = FALSE`;
   const params = [];
   let paramIndex = 1;
 
@@ -82,8 +84,8 @@ export const searchUsers = async (queryString, limit = 20) => {
     params.push(queryString);
     paramIndex++;
   } else {
-    queryStr += ` AND (email ILIKE $${paramIndex} OR display_name ILIKE $${paramIndex} OR id::text LIKE $${paramIndex})`;
-    params.push(`%${queryString}%`);
+    queryStr += ` AND (email ILIKE $${paramIndex} OR display_name ILIKE $${paramIndex} OR nickname ILIKE $${paramIndex} OR id::text LIKE $${paramIndex})`;
+    params.push(`%${cleanQuery}%`);
     paramIndex++;
   }
 
@@ -96,6 +98,7 @@ export const searchUsers = async (queryString, limit = 20) => {
 
 export const findUserByIdentifier = async (identifier) => {
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+  const cleanIdentifier = identifier.startsWith('@') ? identifier.slice(1) : identifier;
   
   let queryStr = 'SELECT * FROM users WHERE';
   const params = [];
@@ -103,12 +106,15 @@ export const findUserByIdentifier = async (identifier) => {
   if (isUUID) {
     queryStr += ' id = $1';
     params.push(identifier);
-  } else if (identifier.includes('@')) {
+  } else if (identifier.includes('@') && identifier.includes('.')) {
     queryStr += ' email = $1';
     params.push(identifier.toLowerCase());
+  } else if (identifier.startsWith('@')) {
+    queryStr += ' nickname ILIKE $1';
+    params.push(cleanIdentifier);
   } else {
-    queryStr += ' display_name ILIKE $1';
-    params.push(`%${identifier}%`);
+    queryStr += ' (display_name ILIKE $1 OR nickname ILIKE $1)';
+    params.push(`%${cleanIdentifier}%`);
   }
 
   const result = await query(queryStr, params);

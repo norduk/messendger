@@ -457,12 +457,18 @@ function showMyProfile() {
         }
       </div>
       <div class="profile-name">${currentUser.displayName || 'Без имени'}</div>
+      ${currentUser.nickname ? `<div class="profile-nickname">@${currentUser.nickname}</div>` : ''}
       <div class="profile-status online">● В сети</div>
       <div class="profile-details">
+        ${currentUser.nickname ? `
+        <div class="profile-item">
+          <span class="profile-label">ID</span>
+          <span class="profile-value" style="cursor: pointer;" title="Нажмите чтобы скопировать" onclick="navigator.clipboard.writeText('@${currentUser.nickname}'); showToast('ID скопирован', 'success');">@${currentUser.nickname}</span>
+        </div>` : `
         <div class="profile-item">
           <span class="profile-label">ID</span>
           <span class="profile-value" style="font-family: monospace; font-size: 11px; cursor: pointer;" title="Нажмите чтобы скопировать" onclick="navigator.clipboard.writeText('${currentUser.id}'); showToast('ID скопирован', 'success');">${currentUser.id}</span>
-        </div>
+        </div>`}
         ${currentUser.email ? `<div class="profile-item">
           <span class="profile-label">Email</span>
           <span class="profile-value">${currentUser.email}</span>
@@ -1265,9 +1271,17 @@ function renderProfileView(container) {
         }
       </div>
       <div class="profile-display-name">${currentUser.displayName || 'Без имени'}</div>
+      ${currentUser.nickname ? `<div class="profile-display-nickname">@${currentUser.nickname}</div>` : ''}
       <div class="profile-status-text">${isOnline ? '● В сети' : '○ Не в сети'}</div>
       
       <div class="profile-info-list">
+        <div class="profile-info-item">
+          <div class="profile-info-icon">${currentUser.nickname ? '@' : '🆔'}</div>
+          <div class="profile-info-details">
+            <div class="profile-info-label">ID</div>
+            <div class="profile-info-value" style="${currentUser.nickname ? '' : 'font-family: monospace;'} cursor: pointer;" onclick="navigator.clipboard.writeText('${currentUser.nickname ? '@' + currentUser.nickname : currentUser.id}'); showToast('ID скопирован', 'success');">${currentUser.nickname ? '@' + currentUser.nickname : currentUser.id}</div>
+          </div>
+        </div>
         ${currentUser.email ? `
         <div class="profile-info-item">
           <div class="profile-info-icon">✉️</div>
@@ -1284,13 +1298,6 @@ function renderProfileView(container) {
             <div class="profile-info-value">${currentUser.phone}</div>
           </div>
         </div>` : ''}
-        <div class="profile-info-item">
-          <div class="profile-info-icon">🆔</div>
-          <div class="profile-info-details">
-            <div class="profile-info-label">ID</div>
-            <div class="profile-info-value" style="font-family: monospace; cursor: pointer;" onclick="navigator.clipboard.writeText('${currentUser.id}'); showToast('ID скопирован', 'success');">${currentUser.id}</div>
-          </div>
-        </div>
       </div>
       
       <button class="btn btn-primary" id="edit-profile-btn">Редактировать профиль</button>
@@ -1315,6 +1322,11 @@ function renderProfileView(container) {
         <div class="edit-field">
           <label for="edit-name">Имя</label>
           <input type="text" id="edit-name" value="${currentUser.displayName || ''}" placeholder="Введите имя">
+        </div>
+        <div class="edit-field">
+          <label for="edit-nickname">Никнейм</label>
+          <input type="text" id="edit-nickname" value="${currentUser.nickname || ''}" placeholder="myname" pattern="[a-zA-Z0-9_]+">
+          <small style="color: var(--text-secondary); font-size: 11px;">Только латиница, цифры и _</small>
         </div>
         <div class="edit-field">
           <label for="edit-email">Email</label>
@@ -1395,19 +1407,21 @@ function renderProfileView(container) {
   
   document.getElementById('save-profile-btn').addEventListener('click', async () => {
     const displayName = document.getElementById('edit-name').value;
+    const nickname = document.getElementById('edit-nickname').value.replace(/[^a-zA-Z0-9_]/g, '');
     const email = document.getElementById('edit-email').value;
     const phone = document.getElementById('edit-phone').value;
     
     try {
-      await api.put('/users/profile', { displayName, email, phone });
+      await api.put('/users/profile', { displayName, nickname, email, phone });
       currentUser.displayName = displayName;
+      currentUser.nickname = nickname;
       currentUser.email = email;
       currentUser.phone = phone;
       updateUserUI();
       showToast('Профиль сохранён', 'success');
       renderProfileView(container);
     } catch (e) {
-      showToast('Ошибка сохранения', 'error');
+      showToast(e.message || 'Ошибка сохранения', 'error');
     }
   });
   
@@ -1542,6 +1556,7 @@ async function showFriendProfile(friendId) {
   
   let isOnline = false;
   let lastSeen = null;
+  let nickname = null;
   
   try {
     const statusData = await api.get(`/users/online-status/${friendId}`);
@@ -1551,36 +1566,40 @@ async function showFriendProfile(friendId) {
     if (userData.user?.lastSeen) {
       lastSeen = userData.user.lastSeen;
     }
+    if (userData.user?.nickname) {
+      nickname = userData.user.nickname;
+    }
   } catch (e) {
     console.error('Failed to get online status:', e);
   }
   
   const lastSeenText = isOnline ? 'В сети' : (lastSeen ? formatLastSeen(lastSeen) : 'Недавно');
+  const displayName = friend.display_name || friend.email;
+  const displayId = nickname ? `@${nickname}` : friend.id;
   
   showModal('Профиль', `
     <div class="profile-container">
       <div class="profile-avatar">
         ${friend.avatarUrl ? 
           `<img src="${friend.avatarUrl}" class="profile-avatar-img" alt="Avatar">` : 
-          `<div class="profile-avatar-placeholder">${(friend.display_name || friend.email).charAt(0).toUpperCase()}</div>`
+          `<div class="profile-avatar-placeholder">${displayName.charAt(0).toUpperCase()}</div>`
         }
       </div>
-      <div class="profile-info">
-        <div class="profile-name">${friend.display_name || friend.email}</div>
-        <div class="profile-status ${isOnline ? 'online' : ''}">${isOnline ? '● В сети' : '○ Не в сети'}</div>
-        <div class="profile-details">
-          <div class="profile-item">
-            <span class="profile-label">ID</span>
-            <span class="profile-value" style="font-family: monospace; font-size: 11px; cursor: pointer;" title="Нажмите чтобы скопировать" onclick="navigator.clipboard.writeText('${friend.id}'); showToast('ID скопирован', 'success');">${friend.id}</span>
-          </div>
-          ${friend.email ? `<div class="profile-item">
-            <span class="profile-label">Email</span>
-            <span class="profile-value">${friend.email}</span>
-          </div>` : ''}
-          <div class="profile-item">
-            <span class="profile-label">Последний онлайн</span>
-            <span class="profile-value">${lastSeenText}</span>
-          </div>
+      <div class="profile-name">${displayName}</div>
+      ${nickname ? `<div class="profile-nickname">@${nickname}</div>` : ''}
+      <div class="profile-status ${isOnline ? 'online' : ''}">${isOnline ? '● В сети' : '○ Не в сети'}</div>
+      <div class="profile-details">
+        <div class="profile-item">
+          <span class="profile-label">ID</span>
+          <span class="profile-value" style="${nickname ? '' : 'font-family: monospace; font-size: 11px;'} cursor: pointer;" title="Нажмите чтобы скопировать" onclick="navigator.clipboard.writeText('${displayId}'); showToast('ID скопирован', 'success');">${displayId}</span>
+        </div>
+        ${friend.email ? `<div class="profile-item">
+          <span class="profile-label">Email</span>
+          <span class="profile-value">${friend.email}</span>
+        </div>` : ''}
+        <div class="profile-item">
+          <span class="profile-label">Последний онлайн</span>
+          <span class="profile-value">${lastSeenText}</span>
         </div>
       </div>
     </div>
