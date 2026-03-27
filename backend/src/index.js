@@ -52,7 +52,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 500,
   message: { error: 'Too many requests, please try again later' }
 });
 
@@ -62,9 +62,16 @@ const authLimiter = rateLimit({
   message: { error: 'Too many authentication attempts' }
 });
 
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  message: { error: 'Too many requests' }
+});
+
 app.use('/api/', limiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
+app.use('/api/admin', adminLimiter);
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 

@@ -283,7 +283,7 @@ async function loadHealth() {
           <label class="auto-refresh-toggle">
             <input type="checkbox" id="auto-refresh-toggle" checked>
             <span class="toggle-slider"></span>
-            <span class="toggle-label">Auto-refresh (5s)</span>
+            <span class="toggle-label">Auto-refresh (10s)</span>
           </label>
         </div>
       `;
@@ -294,7 +294,7 @@ async function loadHealth() {
       if (toggle) {
         toggle.addEventListener('change', () => {
           if (toggle.checked) {
-            healthRefreshInterval = setInterval(refreshHealth, 5000);
+            healthRefreshInterval = setInterval(refreshHealth, 10000);
           } else {
             clearInterval(healthRefreshInterval);
             healthRefreshInterval = null;
@@ -308,7 +308,7 @@ async function loadHealth() {
   }
   
   await refreshHealth();
-  healthRefreshInterval = setInterval(refreshHealth, 5000);
+  healthRefreshInterval = setInterval(refreshHealth, 10000);
 }
 
 function getServiceIcon(name) {
