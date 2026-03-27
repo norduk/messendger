@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config/index.js';
 import { findUserById } from '../models/User.js';
 import { createMessage, updateMessageStatus } from '../models/Message.js';
+import { findFriendship } from '../models/Friendship.js';
 import { setOnlineStatus, removeOnlineStatus, isUserOnline } from '../db/redis.js';
 
 let io;
@@ -53,6 +54,12 @@ export const initWebSocket = (server) => {
     socket.on('message', async (data) => {
       try {
         const { recipientId, encryptedContent, contentType, tempId, fileUrl, fileName, fileSize } = data;
+
+        const friendship = await findFriendship(socket.userId, recipientId);
+        if (!friendship || friendship.status !== 'accepted') {
+          socket.emit('error', { message: 'Not friends with this user', tempId });
+          return;
+        }
 
         const message = await createMessage({
           senderId: socket.userId,
@@ -118,14 +125,16 @@ export const initWebSocket = (server) => {
 
     socket.on('mark_delivered', async (data) => {
       try {
-        const { messageId } = data;
+        const { messageId, senderId } = data;
         
         await updateMessageStatus(messageId, 'delivered');
 
-        io.emit('message_status', {
-          messageId,
-          status: 'delivered'
-        });
+        if (senderId) {
+          io.to(`user:${senderId}`).emit('message_status', {
+            messageId,
+            status: 'delivered'
+          });
+        }
       } catch (error) {
         console.error('Mark delivered error:', error);
       }
@@ -137,7 +146,7 @@ export const initWebSocket = (server) => {
       userSockets.delete(socket.userId);
       await removeOnlineStatus(socket.userId);
 
-      io.emit('user_offline', { userId: socket.userId });
+      socket.broadcast.emit('user_offline', { userId: socket.userId });
     });
 
     socket.on('error', (error) => {

@@ -82,8 +82,13 @@ router.post('/upload', authenticate, upload.single('file'), async (req, res) => 
   }
 });
 
-router.get('/:id', (req, res) => {
+router.get('/:id', authenticate, (req, res) => {
   const { id } = req.params;
+  
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return res.status(400).json({ error: 'Invalid file ID' });
+  }
+  
   const filePath = path.join(config.upload.dir, `${id}.enc`);
   const metaPath = path.join(config.upload.dir, `${id}.meta`);
 
@@ -93,27 +98,55 @@ router.get('/:id', (req, res) => {
 
   let metadata = { originalName: 'file', mimeType: 'application/octet-stream' };
   if (fs.existsSync(metaPath)) {
-    metadata = JSON.parse(fs.readFileSync(metaPath));
+    try {
+      metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    } catch {
+      metadata = { originalName: 'file', mimeType: 'application/octet-stream' };
+    }
   }
 
-  const encryptedBuffer = fs.readFileSync(filePath);
-  const decryptedBuffer = decrypt(encryptedBuffer);
+  let encryptedBuffer, decryptedBuffer;
+  try {
+    encryptedBuffer = fs.readFileSync(filePath);
+    decryptedBuffer = decrypt(encryptedBuffer);
+  } catch (error) {
+    console.error('File decryption error:', error);
+    return res.status(500).json({ error: 'Failed to decrypt file' });
+  }
+
+  const safeName = metadata.originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'application/pdf'].includes(metadata.mimeType) 
+    ? metadata.mimeType 
+    : 'application/octet-stream';
 
   res.set({
-    'Content-Type': metadata.mimeType,
-    'Content-Disposition': `inline; filename="${metadata.originalName}"`,
-    'X-Encryption': 'AES-256-GCM'
+    'Content-Type': safeMime,
+    'Content-Disposition': `attachment; filename="${safeName}"`,
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'private, no-store'
   });
 
   res.send(decryptedBuffer);
 });
 
-router.delete('/:id', authenticate, (req, res) => {
+router.delete('/:id', authenticate, async (req, res) => {
   const { id } = req.params;
+  
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return res.status(400).json({ error: 'Invalid file ID' });
+  }
+  
   const filePath = path.join(config.upload.dir, `${id}.enc`);
   const metaPath = path.join(config.upload.dir, `${id}.meta`);
 
   try {
+    if (fs.existsSync(metaPath)) {
+      const metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      if (metadata.uploadedBy && metadata.uploadedBy !== req.user.id) {
+        return res.status(403).json({ error: 'Not authorized to delete this file' });
+      }
+    }
+
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
@@ -122,6 +155,7 @@ router.delete('/:id', authenticate, (req, res) => {
     }
     res.json({ message: 'File deleted' });
   } catch (error) {
+    console.error('File deletion error:', error);
     res.status(500).json({ error: 'Failed to delete file' });
   }
 });

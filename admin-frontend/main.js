@@ -1,9 +1,28 @@
 const API_KEY = 'ENV_API_KEY';
 const API_URL = '/admin-api';
 
-let adminToken = localStorage.getItem('adminToken');
+let adminToken = sessionStorage.getItem('adminToken');
 let currentPage = 'dashboard';
 let currentAdmin = null;
+let healthRefreshInterval = null;
+
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  if (!str) return '';
+  return str.replace(/['"<>&]/g, c => ({
+    "'": '&#39;',
+    '"': '&quot;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '&': '&amp;'
+  })[c]);
+}
 
 const api = {
   async request(endpoint, options = {}) {
@@ -76,13 +95,13 @@ function setupEventListeners() {
       
       if (data.token) {
         adminToken = data.token;
-        localStorage.setItem('adminToken', adminToken);
+        sessionStorage.setItem('adminToken', adminToken);
         currentAdmin = data.admin;
-        document.getElementById('admin-name').textContent = currentAdmin.name;
+        document.getElementById('admin-name').textContent = escapeHtml(currentAdmin.name);
         showAdminPanel();
         showToast('Добро пожаловать!', 'success');
       } else {
-        document.getElementById('login-error').textContent = data.error || 'Ошибка входа';
+        document.getElementById('login-error').textContent = escapeHtml(data.error) || 'Ошибка входа';
       }
     } catch (e) {
       document.getElementById('login-error').textContent = 'Ошибка входа';
@@ -96,7 +115,7 @@ function setupEventListeners() {
 function logout() {
   adminToken = null;
   currentAdmin = null;
-  localStorage.removeItem('adminToken');
+  sessionStorage.removeItem('adminToken');
   showLoginScreen();
 }
 
@@ -505,20 +524,25 @@ function renderUsers(users) {
     return '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No users found</td></tr>';
   }
   
-  return users.map(user => `
-    <tr>
+  const tbody = document.createElement('tbody');
+  
+  users.forEach(user => {
+    const tr = document.createElement('tr');
+    tr.dataset.userId = user.id;
+    
+    tr.innerHTML = `
       <td>
-        <span style="font-family: monospace; font-size: 11px; cursor: pointer;" title="Click to copy" onclick="copyToClipboard('${user.id}')">
-          ${user.id.substring(0, 8)}...
+        <span class="copy-id" style="font-family: monospace; font-size: 11px; cursor: pointer;">
+          ${escapeHtml(user.id.substring(0, 8))}...
         </span>
       </td>
       <td>
         <div class="user-cell">
-          <div class="avatar">${(user.display_name || user.name || 'U').charAt(0).toUpperCase()}</div>
-          <span>${user.display_name || user.name || 'No name'}</span>
+          <div class="avatar">${escapeHtml((user.display_name || user.name || 'U').charAt(0).toUpperCase())}</div>
+          <span>${escapeHtml(user.display_name || user.name || 'No name')}</span>
         </div>
       </td>
-      <td>${user.email || '-'}</td>
+      <td>${escapeHtml(user.email) || '-'}</td>
       <td>
         ${user.is_blocked 
           ? '<span class="badge badge-error">Blocked</span>' 
@@ -531,19 +555,32 @@ function renderUsers(users) {
       </td>
       <td>
         <div class="actions">
-          <button class="btn btn-primary btn-sm" onclick="editUser('${user.id}')">Edit</button>
+          <button class="btn btn-primary btn-sm btn-edit">Edit</button>
           ${user.is_blocked 
-            ? `<button class="btn btn-success btn-sm" onclick="unblockUser('${user.id}')">Unblock</button>`
-            : `<button class="btn btn-warning btn-sm" onclick="blockUser('${user.id}')">Block</button>`}
+            ? '<button class="btn btn-success btn-sm btn-unblock">Unblock</button>'
+            : '<button class="btn btn-warning btn-sm btn-block">Block</button>'}
           ${user.is_admin 
-            ? `<button class="btn btn-danger btn-sm" onclick="toggleAdmin('${user.id}', false)">Revoke Admin</button>`
-            : `<button class="btn btn-success btn-sm" onclick="toggleAdmin('${user.id}', true)">Make Admin</button>`}
-          ${!user.is_admin ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${user.id}')">Delete</button>` : ''}
-          <button class="btn btn-secondary btn-sm" onclick="showUserStorage('${user.id}')">Storage</button>
+            ? '<button class="btn btn-danger btn-sm btn-revoke">Revoke Admin</button>'
+            : '<button class="btn btn-success btn-sm btn-make-admin">Make Admin</button>'}
+          ${!user.is_admin ? '<button class="btn btn-danger btn-sm btn-delete">Delete</button>' : ''}
+          <button class="btn btn-secondary btn-sm btn-storage">Storage</button>
         </div>
       </td>
-    </tr>
-  `).join('');
+    `;
+    
+    tr.querySelector('.copy-id')?.addEventListener('click', () => copyToClipboard(user.id));
+    tr.querySelector('.btn-edit')?.addEventListener('click', () => editUser(user.id));
+    tr.querySelector('.btn-unblock')?.addEventListener('click', () => unblockUser(user.id));
+    tr.querySelector('.btn-block')?.addEventListener('click', () => blockUser(user.id));
+    tr.querySelector('.btn-revoke')?.addEventListener('click', () => toggleAdmin(user.id, false));
+    tr.querySelector('.btn-make-admin')?.addEventListener('click', () => toggleAdmin(user.id, true));
+    tr.querySelector('.btn-delete')?.addEventListener('click', () => deleteUser(user.id));
+    tr.querySelector('.btn-storage')?.addEventListener('click', () => showUserStorage(user.id));
+    
+    tbody.appendChild(tr);
+  });
+  
+  return tbody.innerHTML;
 }
 
 function setupUserFilters() {
