@@ -42,16 +42,18 @@ export const findUserById = async (id) => {
   return result.rows[0];
 };
 
-export const updateUser = async (id, { displayName, avatarUrl, publicKey }) => {
+export const updateUser = async (id, { displayName, avatarUrl, publicKey, email, phone }) => {
   const result = await query(
     `UPDATE users 
      SET display_name = COALESCE($2, display_name),
          avatar_url = COALESCE($3, avatar_url),
          public_key = COALESCE($4, public_key),
+         email = COALESCE($5, email),
+         phone = COALESCE($6, phone),
          updated_at = NOW()
      WHERE id = $1
-     RETURNING id, email, public_key, display_name, avatar_url`,
-    [id, displayName, avatarUrl, publicKey]
+     RETURNING id, email, phone, public_key, display_name, avatar_url`,
+    [id, displayName, avatarUrl, publicKey, email, phone]
   );
   return result.rows[0];
 };

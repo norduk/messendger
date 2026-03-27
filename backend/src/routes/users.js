@@ -94,8 +94,8 @@ router.get('/:id', authenticate, async (req, res) => {
 
 router.put('/profile', authenticate, async (req, res) => {
   try {
-    const { displayName, avatarUrl } = req.body;
-    const user = await updateUser(req.user.id, { displayName, avatarUrl });
+    const { displayName, avatarUrl, email, phone } = req.body;
+    const user = await updateUser(req.user.id, { displayName, avatarUrl, email, phone });
     
     await updateLastSeen(req.user.id);
 
@@ -103,6 +103,7 @@ router.put('/profile', authenticate, async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
+        phone: user.phone,
         displayName: user.display_name,
         avatarUrl: user.avatar_url,
         publicKey: user.public_key

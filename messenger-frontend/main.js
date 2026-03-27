@@ -215,10 +215,10 @@ async function performSync() {
         renderMessages(selectedFriendId);
         renderFriends();
       }
-      
-      lastSyncTime = result.syncedAt;
-      if (currentUser?.id) saveLastSyncTime(currentUser.id);
     }
+    
+    lastSyncTime = Date.now().toString();
+    if (currentUser?.id) saveLastSyncTime(currentUser.id);
   } catch (e) {
     console.error('Sync failed:', e);
   }
@@ -228,7 +228,7 @@ let syncInterval = null;
 
 function startPeriodicSync() {
   if (syncInterval) clearInterval(syncInterval);
-  syncInterval = setInterval(performSync, 60000);
+  syncInterval = setInterval(performSync, 600000);
 }
 
 function stopPeriodicSync() {
@@ -402,6 +402,7 @@ async function initApp() {
     loadFriends();
     setupSocket();
     setupChatTabs();
+    setupUserAvatarClick();
     
     if (currentUser?.id) {
       messages = loadMessagesFromStorage(currentUser.id);
@@ -438,6 +439,41 @@ function updateUserUI() {
   } else {
     avatarEl.textContent = (currentUser.displayName || currentUser.email).charAt(0).toUpperCase();
   }
+}
+
+function setupUserAvatarClick() {
+  document.querySelector('.user-info').addEventListener('click', () => {
+    showMyProfile();
+  });
+}
+
+function showMyProfile() {
+  showModal('Мой профиль', `
+    <div class="profile-container">
+      <div class="profile-avatar">
+        ${currentUser.avatarUrl ? 
+          `<img src="${currentUser.avatarUrl}" class="profile-avatar-img" alt="Avatar">` : 
+          `<div class="profile-avatar-placeholder">${(currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase()}</div>`
+        }
+      </div>
+      <div class="profile-name">${currentUser.displayName || 'Без имени'}</div>
+      <div class="profile-status online">● В сети</div>
+      <div class="profile-details">
+        <div class="profile-item">
+          <span class="profile-label">ID</span>
+          <span class="profile-value" style="font-family: monospace; font-size: 11px; cursor: pointer;" title="Нажмите чтобы скопировать" onclick="navigator.clipboard.writeText('${currentUser.id}'); showToast('ID скопирован', 'success');">${currentUser.id}</span>
+        </div>
+        ${currentUser.email ? `<div class="profile-item">
+          <span class="profile-label">Email</span>
+          <span class="profile-value">${currentUser.email}</span>
+        </div>` : ''}
+        ${currentUser.phone ? `<div class="profile-item">
+          <span class="profile-label">Телефон</span>
+          <span class="profile-value">${currentUser.phone}</span>
+        </div>` : ''}
+      </div>
+    </div>
+  `);
 }
 
 function setupSocket() {
@@ -571,6 +607,7 @@ async function selectChat(friendId) {
     item.classList.toggle('active', item.dataset.id === friendId);
   });
   
+  closeSettings();
   document.querySelector('.sidebar').classList.remove('open');
   document.querySelector('.mobile-overlay')?.classList.remove('active');
   
@@ -1178,140 +1215,244 @@ function setupModals() {
     if (e.target.classList.contains('modal')) closeModal();
   });
   
-  document.getElementById('settings-btn').addEventListener('click', () => {
-    const hasSync = syncToken !== null;
-    const lastSync = lastSyncTime ? new Date(parseInt(lastSyncTime)).toLocaleString() : 'Никогда';
-    
-    showModal('Настройки', `
-      <div class="settings-section">
-        <h3>Аватар</h3>
-        <div class="avatar-upload-container">
-          <div class="avatar-preview-large" id="avatar-preview">
-            ${currentUser.avatarUrl ? 
-              `<img src="${currentUser.avatarUrl}" class="avatar-preview-img" alt="Avatar">` : 
-              `<div class="avatar-preview-placeholder">${(currentUser.displayName || currentUser.email).charAt(0).toUpperCase()}</div>`
-            }
-          </div>
-          <input type="file" id="avatar-input" class="file-input" accept="image/jpeg,image/png,image/gif,image/webp">
-          <button class="btn btn-secondary btn-sm" id="avatar-upload-btn" style="margin-top: 12px;">Загрузить аватар</button>
-          <div class="avatar-hint">Макс. 5 МБ</div>
-        </div>
-      </div>
-      <div class="settings-section">
-        <h3>Аккаунт</h3>
-        <div class="settings-item">
-          <span>Ваш ID</span>
-          <span style="color: var(--text-secondary); font-family: monospace; font-size: 12px; cursor: pointer;" title="Нажмите чтобы скопировать" onclick="navigator.clipboard.writeText('${currentUser.id}')">${currentUser.id.substring(0, 8)}...</span>
-        </div>
-        <div class="settings-item">
-          <span>Email</span>
-          <span style="color: var(--text-secondary);">${currentUser.email}</span>
-        </div>
-        <div class="settings-item">
-          <span>Имя</span>
-          <input type="text" id="settings-name" value="${currentUser.displayName || ''}" placeholder="Введите имя">
-        </div>
-      </div>
-      <div class="settings-section">
-        <h3>Синхронизация</h3>
-        <div class="settings-item">
-          <span>Статус</span>
-          <span style="color: var(--success);">✓ Включена</span>
-        </div>
-        <div class="settings-item">
-          <span>Последняя синхр.</span>
-          <span style="color: var(--text-secondary); font-size: 12px;">${lastSync}</span>
-        </div>
-        <button class="btn btn-secondary" id="sync-now-btn" style="margin-top: 12px; width: 100%;">Синхронизировать сейчас</button>
-      </div>
-      <button class="btn btn-primary" id="save-settings" style="margin-top: 20px;">Сохранить</button>
-      <button class="btn btn-secondary" id="logout-btn" style="margin-top: 10px; width: 100%;">Выйти</button>
-    `);
-    
-    document.getElementById('avatar-upload-btn').addEventListener('click', () => {
-      document.getElementById('avatar-input').click();
+  document.getElementById('settings-btn').addEventListener('click', openSettings);
+  document.getElementById('settings-back-btn').addEventListener('click', closeSettings);
+  
+  document.querySelectorAll('.settings-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.settings-nav-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderSettingsTab(btn.dataset.settingsTab);
     });
-    
-    document.getElementById('avatar-input').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      
-      if (file.size > 5 * 1024 * 1024) {
-        showToast('Файл слишком большой (макс. 5 МБ)', 'error');
-        return;
-      }
-      
-      const formData = new FormData();
-      formData.append('avatar', file);
-      
-      const btn = document.getElementById('avatar-upload-btn');
-      btn.disabled = true;
-      btn.textContent = 'Загрузка...';
-      
-      try {
-        const response = await fetch(`${API_URL}/users/avatar`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`
-          },
-          body: formData
-        });
-        
-        const data = await response.json();
-        if (data.user) {
-          currentUser.avatarUrl = data.user.avatarUrl;
-          updateUserUI();
-          
-          const preview = document.getElementById('avatar-preview');
-          preview.innerHTML = `<img src="${data.user.avatarUrl}" class="avatar-preview-img" alt="Avatar">`;
-          
-          showToast('Аватар обновлён', 'success');
-        } else {
-          showToast(data.error || 'Ошибка загрузки', 'error');
-        }
-      } catch (e) {
-        console.error('Avatar upload error:', e);
-        showToast('Ошибка загрузки аватара', 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Загрузить аватар';
-      }
-    });
-    
-    document.getElementById('save-settings').addEventListener('click', async () => {
-      const displayName = document.getElementById('settings-name').value;
-      try {
-        await api.put('/users/profile', { displayName });
-        currentUser.displayName = displayName;
-        updateUserUI();
-        showToast('Настройки сохранены', 'success');
-        closeModal();
-      } catch (e) {
-        showToast('Ошибка сохранения', 'error');
-      }
-    });
-    
-    document.getElementById('sync-now-btn').addEventListener('click', async () => {
-      const btn = document.getElementById('sync-now-btn');
-      btn.disabled = true;
-      btn.textContent = 'Синхронизация...';
-      
-      try {
-        await initSync('');
-        await performSync();
-        showToast('Синхронизировано!', 'success');
-        closeModal();
-        setTimeout(() => setupModals(), 100);
-      } catch (e) {
-        showToast('Ошибка синхр.', 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Синхронизировать сейчас';
-      }
-    });
-    
-    document.getElementById('logout-btn').addEventListener('click', logout);
   });
+}
+
+function openSettings() {
+  document.querySelector('.chat-area').style.display = 'none';
+  document.getElementById('settings-panel').classList.add('active');
+  document.querySelector('.sidebar').classList.remove('open');
+  document.querySelector('.mobile-overlay')?.classList.remove('active');
+  
+  document.querySelectorAll('.settings-nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('.settings-nav-btn[data-settings-tab="profile"]').classList.add('active');
+  renderSettingsTab('profile');
+}
+
+function closeSettings() {
+  document.getElementById('settings-panel').classList.remove('active');
+  document.querySelector('.chat-area').style.display = '';
+}
+
+function renderSettingsTab(tab) {
+  const content = document.getElementById('settings-content');
+  
+  if (tab === 'profile') {
+    renderProfileView(content);
+  } else if (tab === 'account') {
+    renderAccountView(content);
+  }
+}
+
+function renderProfileView(container) {
+  const isOnline = true;
+  
+  container.innerHTML = `
+    <div class="profile-view" id="profile-view-mode">
+      <div class="profile-avatar-large">
+        ${currentUser.avatarUrl ? 
+          `<img src="${currentUser.avatarUrl}" class="avatar-img" alt="Avatar">` : 
+          `<div class="profile-avatar-placeholder">${(currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase()}</div>`
+        }
+      </div>
+      <div class="profile-display-name">${currentUser.displayName || 'Без имени'}</div>
+      <div class="profile-status-text">${isOnline ? '● В сети' : '○ Не в сети'}</div>
+      
+      <div class="profile-info-list">
+        ${currentUser.email ? `
+        <div class="profile-info-item">
+          <div class="profile-info-icon">✉️</div>
+          <div class="profile-info-details">
+            <div class="profile-info-label">Email</div>
+            <div class="profile-info-value">${currentUser.email}</div>
+          </div>
+        </div>` : ''}
+        ${currentUser.phone ? `
+        <div class="profile-info-item">
+          <div class="profile-info-icon">📱</div>
+          <div class="profile-info-details">
+            <div class="profile-info-label">Телефон</div>
+            <div class="profile-info-value">${currentUser.phone}</div>
+          </div>
+        </div>` : ''}
+        <div class="profile-info-item">
+          <div class="profile-info-icon">🆔</div>
+          <div class="profile-info-details">
+            <div class="profile-info-label">ID</div>
+            <div class="profile-info-value" style="font-family: monospace; cursor: pointer;" onclick="navigator.clipboard.writeText('${currentUser.id}'); showToast('ID скопирован', 'success');">${currentUser.id}</div>
+          </div>
+        </div>
+      </div>
+      
+      <button class="btn btn-primary" id="edit-profile-btn">Редактировать профиль</button>
+    </div>
+    
+    <div class="profile-edit-section" id="profile-edit-mode">
+      <div class="edit-avatar-row">
+        <div class="edit-avatar-preview" id="edit-avatar-preview">
+          ${currentUser.avatarUrl ? 
+            `<img src="${currentUser.avatarUrl}" class="avatar-img" alt="Avatar">` : 
+            `<div class="profile-avatar-placeholder" style="font-size: 24px;">${(currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase()}</div>`
+          }
+        </div>
+        <div class="edit-avatar-info">
+          <p>Рекомендуемый размер: 200x200px</p>
+          <input type="file" id="edit-avatar-input" class="file-input" accept="image/jpeg,image/png,image/gif,image/webp">
+          <button class="btn btn-secondary btn-sm" id="edit-avatar-btn">Изменить аватар</button>
+        </div>
+      </div>
+      
+      <div class="edit-form">
+        <div class="edit-field">
+          <label for="edit-name">Имя</label>
+          <input type="text" id="edit-name" value="${currentUser.displayName || ''}" placeholder="Введите имя">
+        </div>
+        <div class="edit-field">
+          <label for="edit-email">Email</label>
+          <input type="email" id="edit-email" value="${currentUser.email || ''}" placeholder="example@mail.com">
+        </div>
+        <div class="edit-field">
+          <label for="edit-phone">Мобильный телефон</label>
+          <input type="tel" id="edit-phone" value="${currentUser.phone || ''}" placeholder="+7 (___) ___-__-__">
+        </div>
+        <div class="edit-actions">
+          <button class="btn btn-ghost" id="cancel-edit-btn">Отмена</button>
+          <button class="btn btn-primary" id="save-profile-btn">Сохранить</button>
+        </div>
+      </div>
+    </div>
+    
+    <div class="logout-section">
+      <button class="btn btn-logout" id="settings-logout-btn">Выйти из аккаунта</button>
+    </div>
+  `;
+  
+  document.getElementById('edit-profile-btn').addEventListener('click', () => {
+    document.getElementById('profile-view-mode').style.display = 'none';
+    document.getElementById('profile-edit-mode').classList.add('active');
+  });
+  
+  document.getElementById('cancel-edit-btn').addEventListener('click', () => {
+    document.getElementById('profile-view-mode').style.display = '';
+    document.getElementById('profile-edit-mode').classList.remove('active');
+  });
+  
+  document.getElementById('edit-avatar-btn').addEventListener('click', () => {
+    document.getElementById('edit-avatar-input').click();
+  });
+  
+  document.getElementById('edit-avatar-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Файл слишком большой (макс. 5 МБ)', 'error');
+      return;
+    }
+    
+    const formData = new FormData();
+    formData.append('avatar', file);
+    
+    const btn = document.getElementById('edit-avatar-btn');
+    btn.disabled = true;
+    btn.textContent = 'Загрузка...';
+    
+    try {
+      const response = await fetch(`${API_URL}/users/avatar`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+        body: formData
+      });
+      
+      const data = await response.json();
+      if (data.user) {
+        currentUser.avatarUrl = data.user.avatarUrl;
+        updateUserUI();
+        
+        const preview = document.getElementById('edit-avatar-preview');
+        preview.innerHTML = `<img src="${data.user.avatarUrl}" class="avatar-img" alt="Avatar">`;
+        
+        showToast('Аватар обновлён', 'success');
+      } else {
+        showToast(data.error || 'Ошибка загрузки', 'error');
+      }
+    } catch (e) {
+      showToast('Ошибка загрузки аватара', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Изменить аватар';
+    }
+  });
+  
+  document.getElementById('save-profile-btn').addEventListener('click', async () => {
+    const displayName = document.getElementById('edit-name').value;
+    const email = document.getElementById('edit-email').value;
+    const phone = document.getElementById('edit-phone').value;
+    
+    try {
+      await api.put('/users/profile', { displayName, email, phone });
+      currentUser.displayName = displayName;
+      currentUser.email = email;
+      currentUser.phone = phone;
+      updateUserUI();
+      showToast('Профиль сохранён', 'success');
+      renderProfileView(container);
+    } catch (e) {
+      showToast('Ошибка сохранения', 'error');
+    }
+  });
+  
+  document.getElementById('settings-logout-btn').addEventListener('click', () => {
+    closeSettings();
+    logout();
+  });
+}
+
+function renderAccountView(container) {
+  const lastSync = lastSyncTime ? new Date(parseInt(lastSyncTime)).toLocaleString() : 'Никогда';
+  
+  container.innerHTML = `
+    <div class="settings-section">
+      <h3>Безопасность</h3>
+      <div class="profile-info-list">
+        <div class="profile-info-item">
+          <div class="profile-info-icon">🔐</div>
+          <div class="profile-info-details">
+            <div class="profile-info-label">Статус аккаунта</div>
+            <div class="profile-info-value" style="color: var(--success);">Активен</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="settings-section">
+      <h3>Синхронизация</h3>
+      <div class="profile-info-list">
+        <div class="profile-info-item">
+          <div class="profile-info-icon">🔄</div>
+          <div class="profile-info-details">
+            <div class="profile-info-label">Статус</div>
+            <div class="profile-info-value" style="color: var(--success);">Автоматически каждые 10 мин.</div>
+          </div>
+        </div>
+        <div class="profile-info-item">
+          <div class="profile-info-icon">🕐</div>
+          <div class="profile-info-details">
+            <div class="profile-info-label">Последняя синхронизация</div>
+            <div class="profile-info-value">${lastSync}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function showModal(title, content) {
