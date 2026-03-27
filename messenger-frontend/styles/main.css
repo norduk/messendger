@@ -405,6 +405,7 @@ body {
   padding: 16px 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  gap: 8px;
 }
 
 .chat-header-info {
@@ -673,12 +674,20 @@ body {
   display: none;
   width: 36px;
   height: 36px;
-  background: transparent;
+  background: var(--surface-alt);
   border: none;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 18px;
+  font-size: 16px;
   cursor: pointer;
   margin-right: 8px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-back-btn:hover {
+  background: var(--surface-hover);
 }
 
 .mobile-overlay {
@@ -703,6 +712,49 @@ body {
   
   .mobile-back-btn {
     display: flex;
+  }
+  
+  .sidebar {
+    width: 100%;
+    min-width: 100%;
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 10;
+    transform: translateX(-100%);
+    transition: transform 200ms ease-out;
+  }
+  
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  
+  .chat-area {
+    width: 100%;
+  }
+  
+  .chat-header {
+    padding: 12px 14px;
+  }
+  
+  .chat-header-info {
+    flex: 1;
+    min-width: 0;
+  }
+  
+  .message {
+    max-width: 85%;
+  }
+  
+  .auth-container {
+    padding: 24px;
+    margin: 16px;
+  }
+  
+  .modal-content {
+    margin: 16px;
+    max-height: 85vh;
   }
 }
 
@@ -1040,42 +1092,6 @@ body {
 
 .scrollbar::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
-}
-
-@media (max-width: 768px) {
-  .sidebar {
-    width: 100%;
-    min-width: 100%;
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 10;
-    transform: translateX(-100%);
-    transition: transform 200ms ease-out;
-  }
-  
-  .sidebar.open {
-    transform: translateX(0);
-  }
-  
-  .chat-area {
-    width: 100%;
-  }
-  
-  .message {
-    max-width: 85%;
-  }
-  
-  .auth-container {
-    padding: 24px;
-    margin: 16px;
-  }
-  
-  .modal-content {
-    margin: 16px;
-    max-height: 85vh;
-  }
 }
 
 @media (max-width: 480px) {

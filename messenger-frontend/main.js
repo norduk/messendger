@@ -255,7 +255,7 @@ function init() {
 
 function setupMobileMenu() {
   const sidebar = document.querySelector('.sidebar');
-  const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+  const mobileMenuBtnEmpty = document.getElementById('mobile-menu-btn-empty');
   
   let overlay = document.querySelector('.mobile-overlay');
   if (!overlay) {
@@ -264,8 +264,22 @@ function setupMobileMenu() {
     document.getElementById('main-screen').appendChild(overlay);
   }
   
-  if (mobileMenuBtn) {
-    mobileMenuBtn.addEventListener('click', () => {
+  if (window.innerWidth <= 768) {
+    mobileMenuBtnEmpty.style.display = 'flex';
+  }
+  
+  window.addEventListener('resize', () => {
+    if (window.innerWidth <= 768) {
+      mobileMenuBtnEmpty.style.display = 'flex';
+    } else {
+      mobileMenuBtnEmpty.style.display = 'none';
+      sidebar.classList.remove('open');
+      overlay.classList.remove('active');
+    }
+  });
+  
+  if (mobileMenuBtnEmpty) {
+    mobileMenuBtnEmpty.addEventListener('click', () => {
       sidebar.classList.add('open');
       overlay.classList.add('active');
     });
@@ -587,6 +601,7 @@ function renderChatArea(friend) {
   const chatArea = document.getElementById('chat-area');
   chatArea.innerHTML = `
     <div class="chat-header">
+      <button class="mobile-back-btn" id="mobile-back-btn">◀</button>
       <div class="chat-header-info" id="chat-header-info" data-friend-id="${friend.id}" style="cursor: pointer;">
         <div class="avatar small ${friend.status === 'online' ? 'online' : ''}">${friend.avatarUrl ? `<img src="${friend.avatarUrl}" class="avatar-img" alt="Avatar">` : (friend.display_name || friend.email).charAt(0).toUpperCase()}</div>
         <div>
@@ -619,6 +634,11 @@ function renderChatArea(friend) {
   setupSelectionMode();
   
   document.getElementById('chat-header-info').addEventListener('click', () => showFriendProfile(friend.id));
+  
+  document.getElementById('mobile-back-btn').addEventListener('click', () => {
+    document.querySelector('.sidebar').classList.add('open');
+    document.querySelector('.mobile-overlay')?.classList.add('active');
+  });
   
   document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
 }
