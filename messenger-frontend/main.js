@@ -1,7 +1,7 @@
 const API_URL = '/api';
 const SYNC_URL = '/sync-api';
-let accessToken = localStorage.getItem('accessToken');
-let syncToken = localStorage.getItem('syncToken');
+let accessToken = sessionStorage.getItem('accessToken');
+let syncToken = sessionStorage.getItem('syncToken');
 let currentUser = null;
 let socket = null;
 let selectedFriendId = null;
@@ -82,7 +82,7 @@ function startTokenRefresh() {
         const data = await response.json();
         if (data.accessToken) {
           accessToken = data.accessToken;
-          localStorage.setItem('accessToken', accessToken);
+          sessionStorage.setItem('accessToken', accessToken);
           console.log('Token refreshed');
         }
       }
@@ -143,7 +143,7 @@ const api = {
       const data = await response.json();
       if (data.accessToken) {
         accessToken = data.accessToken;
-        localStorage.setItem('accessToken', accessToken);
+        sessionStorage.setItem('accessToken', accessToken);
         return true;
       }
     } catch (e) {
@@ -230,7 +230,7 @@ async function initSync(password) {
     
     if (result.token) {
       syncToken = result.token;
-      localStorage.setItem('syncToken', syncToken);
+      sessionStorage.setItem('syncToken', syncToken);
       localStorage.setItem(SYNC_KEY_KEY, password);
       return true;
     }
@@ -384,7 +384,7 @@ function setupAuthForms() {
       const data = await api.post('/auth/login', { name, password });
       if (data.accessToken) {
         accessToken = data.accessToken;
-        localStorage.setItem('accessToken', accessToken);
+        sessionStorage.setItem('accessToken', accessToken);
         currentUser = data.user;
         showScreen('main');
         initApp();
@@ -414,7 +414,7 @@ function setupAuthForms() {
       console.log('Register response:', data);
       if (data.accessToken) {
         accessToken = data.accessToken;
-        localStorage.setItem('accessToken', accessToken);
+        sessionStorage.setItem('accessToken', accessToken);
         currentUser = data.user;
         showScreen('main');
         initApp();
@@ -450,7 +450,7 @@ async function loadUser() {
       console.log('App initialized');
     } else {
       console.log('No user, showing auth screen');
-      localStorage.removeItem('accessToken');
+      sessionStorage.removeItem('accessToken');
       accessToken = null;
       showScreen('auth');
     }
@@ -1560,8 +1560,8 @@ function logout() {
   stopTokenRefresh();
   accessToken = null;
   syncToken = null;
-  localStorage.removeItem('accessToken');
-  localStorage.removeItem('syncToken');
+  sessionStorage.removeItem('accessToken');
+  sessionStorage.removeItem('syncToken');
   if (socket) socket.disconnect();
   if (currentUser?.id) {
     localStorage.removeItem(getStorageKey(currentUser.id));

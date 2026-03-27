@@ -55,9 +55,10 @@ router.post('/register', async (req, res) => {
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: config.nodeEnv === 'production',
+      secure: true,
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: '/api/auth'
     });
 
     res.status(201).json({
@@ -118,9 +119,10 @@ router.post('/login', async (req, res) => {
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: config.nodeEnv === 'production',
+      secure: true,
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: '/api/auth'
     });
 
     res.json({
@@ -143,7 +145,7 @@ router.post('/login', async (req, res) => {
 });
 
 router.post('/logout', (req, res) => {
-  res.clearCookie('refreshToken');
+  res.clearCookie('refreshToken', { path: '/api/auth' });
   res.json({ message: 'Logged out successfully' });
 });
 
@@ -159,13 +161,35 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'Invalid token type' });
     }
 
-    const accessToken = jwt.sign(
-      { userId: decoded.userId },
+    const newAccessToken = jwt.sign(
+      { 
+        userId: decoded.userId,
+        type: 'access',
+        iat: Math.floor(Date.now() / 1000)
+      },
       config.jwt.secret,
       { expiresIn: config.jwt.accessExpiresIn }
     );
 
-    res.json({ accessToken });
+    const newRefreshToken = jwt.sign(
+      { 
+        userId: decoded.userId, 
+        type: 'refresh',
+        iat: Math.floor(Date.now() / 1000)
+      },
+      config.jwt.refreshSecret,
+      { expiresIn: config.jwt.refreshExpiresIn }
+    );
+
+    res.cookie('refreshToken', newRefreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: '/api/auth'
+    });
+
+    res.json({ accessToken: newAccessToken });
   } catch (error) {
     res.status(401).json({ error: 'Invalid refresh token' });
   }
