@@ -1,148 +1,306 @@
 # SecureMessenger
 
-Приватный мессенджер с end-to-end шифрованием. Регистрация только по инвайтам.
+Приватный мессенджер с шифрованием сообщений. Регистрация только по инвайтам.
+
+## Архитектура
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         Nginx (443/80)                      │
+│                    SSL Termination + Routing                 │
+└───────┬──────────────┬──────────────┬──────────────┬────────┘
+        │              │              │              │
+   ┌────▼────┐   ┌────▼────┐   ┌────▼────┐   ┌────▼────┐
+   │Messenger│   │  Admin  │   │  Sync   │   │  Files  │
+   │  :3000  │   │   :80   │   │  :3002  │   │  :3003  │
+   └────┬────┘   └─────────┘   └────┬────┘   └─────────┘
+        │                           │
+   ┌────▼────┐                ┌────▼────┐
+   │PostgreSQL│                │  Redis  │
+   │  :5432  │                │  :6379  │
+   └─────────┘                └─────────┘
+```
 
 ## Возможности
 
-- 🔒 End-to-end шифрование сообщений
-- 👥 Друзья и мгновенные сообщения
-- 📷 Отправка фото, видео, файлов
-- 🎫 Регистрация по инвайтам
-- 🛡️ Админ-панель для управления
+### Мессенджер
+- Отправка текстовых сообщений в реальном времени
+- Отправка файлов и изображений (до 100 МБ)
+- Загрузка аватарки пользователя (до 5 МБ)
+- Система друзей с запросами
+- Никнеймы (@username) для поиска
+- Онлайн/офлайн статус
+- Синхронизация между устройствами (каждые 10 мин)
+- Удаление сообщений (синхронизируется)
+- Множественное выделение сообщений
+- Индикатор набора текста
+- Адаптивный дизайн для мобильных устройств
+
+### Админ-панель
+- Dashboard со статистикой
+- Управление пользователями (блокировка, удаление)
+- Назначение/отзыв прав администратора
+- Создание инвайт-кодов
+- Health Check всех контейнеров (автообновление)
+- Просмотр логов действий
+- Управление хранилищем
+
+### Безопасность
+- SSL/TLS шифрование (HTTPS)
+- httpOnly cookies для refresh токенов
+- XSS защита (экранирование HTML)
+- Rate limiting на API
+- Проверка дружбы в WebSocket
+- Аутентификация для скачивания файлов
 
 ## Быстрый старт
 
-### Запуск через Docker
+### Требования
+- Docker и Docker Compose
+- Порты 80 и 443 свободны
+
+### Установка
 
 ```bash
 # Клонируйте репозиторий
+git clone <repository-url>
 cd messendger
+
+# Настройте переменные окружения
+cp .env.example .env
+# Отредактируйте .env - ОБЯЗАТЕЛЬНО смените пароли и ключи!
 
 # Запустите все сервисы
 docker-compose up -d
 
-# Создайте админ-инвайт
-docker-compose exec messenger node -e "
-  const { v4: uuidv4 } = require('uuid');
-  console.log('Admin Invite Code:', uuidv4().toUpperCase().match(/.{1,4}/g).join('-'));
-"
+# Проверьте статус
+docker ps
 ```
 
-### Доступ к сервисам
+### Доступ
 
-- **Мессенджер**: http://localhost:3000
-- **Админ-панель**: http://localhost:3001
-- **PostgreSQL**: localhost:5432
-- **Redis**: localhost:6379
+| Сервис | URL |
+|--------|-----|
+| Мессенджер | https://localhost |
+| Админ-панель | https://localhost/admin |
 
-### Первый админ
+### Первый вход в админку
 
-1. Откройте админ-панель
-2. Войдите с админским инвайтом из логов или сгенерируйте новый
-3. Создайте инвайты для пользователей
+Логин и пароль берутся из `.env` файла:
+```
+ADMIN_NAME=admin
+ADMIN_PASSWORD=<ваш_пароль>
+```
 
 ## Структура проекта
 
 ```
 messendger/
-├── docker-compose.yml     # Docker Compose конфигурация
-├── Dockerfile.messenger   # Backend Dockerfile
-├── Dockerfile.admin      # Admin Panel Dockerfile
-├── backend/              # Node.js бэкенд
-│   ├── src/
-│   │   ├── index.js      # Entry point
-│   │   ├── config/       # Конфигурация
-│   │   ├── db/           # База данных
-│   │   ├── models/       # Модели данных
-│   │   ├── routes/       # API routes
-│   │   ├── middleware/   # Middleware
-│   │   └── services/     # WebSocket, шифрование
-│   └── uploads/          # Файлы
-├── messenger-frontend/   # Фронтенд мессенджера
-└── admin-frontend/       # Админ-панель
+├── docker-compose.yml          # Оркестрация контейнеров
+├── Dockerfile.messenger        # Backend + Frontend мессенджера
+├── Dockerfile.admin            # Админ-панель
+├── Dockerfile.sync             # Сервис синхронизации
+├── Dockerfile.file             # Сервис файлов
+├── Dockerfile.nginx            # Nginx балансировщик
+│
+├── nginx/
+│   └── nginx.conf              # Конфигурация Nginx (SSL, routing)
+│
+├── backend/                    # Node.js бэкенд
+│   └── src/
+│       ├── index.js            # HTTP/HTTPS сервер, middleware
+│       ├── config/             # Конфигурация (JWT, CORS)
+│       ├── db/                 # PostgreSQL, Redis подключения
+│       ├── models/             # Модели данных
+│       ├── routes/             # API endpoints
+│       ├── middleware/          # Auth, Admin, Validation
+│       └── services/           # WebSocket, шифрование
+│
+├── messenger-frontend/         # Фронтенд мессенджера
+│   ├── index.html
+│   ├── main.js                 # Основная логика приложения
+│   └── styles/main.css         # Стили
+│
+├── admin-frontend/             # Админ-панель
+│   ├── index.html
+│   ├── main.js                 # Логика админки
+│   └── styles/admin.css        # Стили
+│
+├── sync-service/               # Сервис синхронизации
+│   └── src/index.js            # API синхронизации
+│
+├── file-service/               # Сервис файлов
+│   └── src/index.js            # Загрузка/скачивание файлов
+│
+├── ssl/                        # SSL сертификаты
+├── uploads/                    # Загруженные файлы
+└── .env                        # Переменные окружения
 ```
 
 ## API Endpoints
 
-### Auth
-- `POST /api/auth/register` - Регистрация (нужен invite)
-- `POST /api/auth/login` - Вход
-- `POST /api/auth/logout` - Выход
-- `POST /api/auth/refresh` - Обновление токена
-- `GET /api/auth/me` - Текущий пользователь
+### Аутентификация
+| Method | Endpoint | Описание |
+|--------|----------|----------|
+| POST | `/api/auth/register` | Регистрация (нужен invite) |
+| POST | `/api/auth/login` | Вход |
+| POST | `/api/auth/logout` | Выход |
+| POST | `/api/auth/refresh` | Обновление токена |
+| GET | `/api/auth/me` | Текущий пользователь |
 
-### Users
-- `GET /api/users/search?q=` - Поиск
-- `GET /api/users/:id` - Профиль
-- `PUT /api/users/profile` - Обновление профиля
+### Пользователи
+| Method | Endpoint | Описание |
+|--------|----------|----------|
+| GET | `/api/users/search?q=` | Поиск по имени/email/нику |
+| GET | `/api/users/:id` | Профиль пользователя |
+| PUT | `/api/users/profile` | Обновление профиля |
+| POST | `/api/users/avatar` | Загрузка аватарки |
 
-### Friends
-- `GET /api/friends` - Список друзей
-- `POST /api/friends/request` - Запрос в друзья
-- `PUT /api/friends/request/:id` - Принять/отклонить
-- `DELETE /api/friends/:id` - Удалить
+### Друзья
+| Method | Endpoint | Описание |
+|--------|----------|----------|
+| GET | `/api/friends` | Список друзей |
+| POST | `/api/friends/request` | Отправить запрос |
+| PUT | `/api/friends/request/:id` | Принять/отклонить |
+| DELETE | `/api/friends/:id` | Удалить друга |
+| GET | `/api/friends/requests` | Входящие запросы |
 
-### Messages
-- `GET /api/messages/:friendId` - История
-- `POST /api/messages/:friendId` - Отправить
-- `PUT /api/messages/:id/read` - Прочитано
-- `DELETE /api/messages/:id` - Удалить
+### Сообщения
+| Method | Endpoint | Описание |
+|--------|----------|----------|
+| GET | `/api/messages/:friendId` | История сообщений |
+| POST | `/api/messages/:friendId` | Отправить сообщение |
+| DELETE | `/api/messages/:id` | Удалить сообщение |
+| POST | `/api/messages/bulk-delete` | Массовое удаление |
 
-### Admin
-- `GET /api/admin/stats` - Статистика
-- `GET /api/admin/users` - Пользователи
-- `PUT /api/admin/users/:id/block` - Заблокировать
-- `POST /api/admin/invites` - Создать инвайты
-- `GET /api/admin/health` - Health check
-- `GET /api/admin/logs` - Логи
+### Синхронизация
+| Method | Endpoint | Описание |
+|--------|----------|----------|
+| POST | `/sync-api/api/sync/register` | Регистрация синхронизации |
+| POST | `/sync-api/api/sync/sync` | Синхронизация сообщений |
 
-## Разработка
+### Админ
+| Method | Endpoint | Описание |
+|--------|----------|----------|
+| GET | `/admin-api/admin/stats` | Статистика системы |
+| GET | `/admin-api/admin/users` | Список пользователей |
+| PUT | `/admin-api/admin/users/:id/block` | Блокировка |
+| PUT | `/admin-api/admin/users/:id/admin` | Права админа |
+| POST | `/admin-api/admin/invites` | Создать инвайты |
+| GET | `/admin-api/admin/health` | Health Check |
+| GET | `/admin-api/admin/logs` | Логи действий |
 
-### Локальный запуск
-
-```bash
-# Backend
-cd backend
-npm install
-npm run dev
-
-# Frontend Messenger (в отдельном терминале)
-cd messenger-frontend
-npm install
-npm run dev
-
-# Frontend Admin (в отдельном терминале)
-cd admin-frontend
-npm install
-npx serve .
-```
-
-### WebSocket Events
+## WebSocket Events
 
 Клиент → Сервер:
-- `auth` - Аутентификация
-- `message` - Отправка сообщения
-- `typing` - Индикатор печати
-- `read` - Прочитано
+| Event | Описание |
+|-------|----------|
+| `message` | Отправка сообщения |
+| `typing` | Индикатор набора текста |
+| `read` | Сообщение прочитано |
+| `mark_delivered` | Отметить доставку |
 
 Сервер → Клиент:
-- `message` - Новое сообщение
-- `message_status` - Статус сообщения
-- `typing` - Кто-то печатает
-- `user_online` - Пользователь онлайн
+| Event | Описание |
+|-------|----------|
+| `message` | Новое сообщение |
+| `message_sent` | Подтверждение отправки |
+| `message_status` | Статус сообщения |
+| `typing` | Кто-то печатает |
+| `user_offline` | Пользователь вышел |
+
+## Конфигурация
+
+### Переменные окружения (.env)
+
+```bash
+# Сервер
+SERVER_URL=http://192.168.1.36
+PORT=3000
+HTTPS_PORT=3443
+
+# База данных
+POSTGRES_USER=messenger
+POSTGRES_PASSWORD=<пароль>
+POSTGRES_DB=messenger
+DATABASE_URL=postgresql://messenger:<пароль>@postgres:5432/messenger
+
+# Redis
+REDIS_URL=redis://redis:6379
+
+# Безопасность (ОБЯЗАТЕЛЬНО СМЕНИТЬ!)
+JWT_SECRET=<32+ символов>
+JWT_REFRESH_SECRET=<32+ символов>
+ADMIN_API_KEY=<ключ>
+FILE_ENCRYPTION_KEY=<32 символа>
+
+# Администратор
+ADMIN_NAME=admin
+ADMIN_PASSWORD=<пароль>
+```
+
+### Генерация ключей
+
+```bash
+# JWT Secret
+openssl rand -base64 32
+
+# JWT Refresh Secret
+openssl rand -base64 32
+
+# File Encryption Key (ровно 32 символа)
+openssl rand -hex 16
+```
+
+## Управление контейнерами
+
+```bash
+# Запуск
+docker-compose up -d
+
+# Остановка
+docker-compose down
+
+# Пересборка
+docker-compose build
+
+# Логи
+docker logs secure_messenger
+docker logs messenger_nginx
+
+# Health Check
+curl -k https://localhost/api/health
+```
+
+### Volumes (данные)
+
+| Volume | Описание |
+|--------|----------|
+| `messendger_postgres_data` | База данных |
+| `messendger_redis_data` | Кэш синхронизации |
+| `messendger_file_storage` | Загруженные файлы |
+
+## Мобильное приложение
+
+Проект включает Capacitor конфигурацию для Android.
+
+```bash
+# Сборка APK
+cd android
+./gradlew assembleDebug
+```
+
+APK файл: `SecureMessenger-debug.apk`
 
 ## Безопасность
 
-- Все пароли через bcrypt (12 раундов)
-- JWT токены с коротким сроком жизни
-- Rate limiting на все endpoints
-- CORS настроен
-- Helmet.js для заголовков безопасности
-- E2E шифрование сообщений
-
-## Environment Variables
-
-См. `.env.example` для списка переменных окружения.
+- **HTTPS**: Все соединения через SSL/TLS
+- **httpOnly Cookies**: Refresh токены недоступны для JavaScript
+- **XSS Защита**: Экранирование всех пользовательских данных
+- **CSRF Защита**: SameSite=strict cookies
+- **Rate Limiting**: Ограничение запросов на API
+- **WebSocket**: Проверка дружбы перед отправкой сообщений
+- **Файлы**: Авторизация для скачивания
 
 ## Лицензия
 
