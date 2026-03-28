@@ -252,8 +252,6 @@ async function loadDashboard() {
   }
 }
 
-let healthRefreshInterval = null;
-
 async function loadHealth() {
   const content = document.getElementById('content');
   

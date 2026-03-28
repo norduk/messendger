@@ -249,7 +249,9 @@ async function initSync(password) {
     if (result.token) {
       syncToken = result.token;
       sessionStorage.setItem('syncToken', syncToken);
-      localStorage.setItem(SYNC_KEY_KEY, password);
+      if (currentUser?.id) {
+        localStorage.setItem(getSyncKeyKey(currentUser.id), password);
+      }
       return true;
     }
   } catch (e) {
@@ -1164,26 +1166,27 @@ function renderRequests(requests) {
     return;
   }
   
-  list.innerHTML = requests.map(req => `
-    <div class="request-item">
-      <div class="avatar small">${(req.display_name || req.email).charAt(0).toUpperCase()}</div>
+  list.innerHTML = '';
+  
+  requests.forEach(req => {
+    const div = document.createElement('div');
+    div.className = 'request-item';
+    div.innerHTML = `
+      <div class="avatar small">${escapeHtml((req.display_name || req.email || 'U').charAt(0).toUpperCase())}</div>
       <div class="request-info">
-        <div class="contact-name">${req.display_name || req.email}</div>
-        <div class="contact-preview">${req.email}</div>
+        <div class="contact-name">${escapeHtml(req.display_name || req.email)}</div>
+        <div class="contact-preview">${escapeHtml(req.email)}</div>
       </div>
       <div class="request-actions">
-        <button class="btn btn-accept" data-id="${req.id}">Принять</button>
-        <button class="btn btn-decline" data-id="${req.id}">Отклонить</button>
+        <button class="btn btn-accept" data-id="${escapeAttr(req.id)}">Принять</button>
+        <button class="btn btn-decline" data-id="${escapeAttr(req.id)}">Отклонить</button>
       </div>
-    </div>
-  `).join('');
-  
-  list.querySelectorAll('.btn-accept').forEach(btn => {
-    btn.addEventListener('click', () => handleRequest(btn.dataset.id, 'accept'));
-  });
-  
-  list.querySelectorAll('.btn-decline').forEach(btn => {
-    btn.addEventListener('click', () => handleRequest(btn.dataset.id, 'decline'));
+    `;
+    
+    div.querySelector('.btn-accept').addEventListener('click', () => handleRequest(req.id, 'accept'));
+    div.querySelector('.btn-decline').addEventListener('click', () => handleRequest(req.id, 'decline'));
+    
+    list.appendChild(div);
   });
 }
 
@@ -1294,17 +1297,21 @@ function showSearchResults(users) {
     z-index: 100;
   `;
   
-  container.innerHTML = users.map(user => `
-    <div class="contact-item" data-identifier="${user.id}">
-      <div class="avatar small">${(user.displayName || user.name || 'U').charAt(0).toUpperCase()}</div>
-      <div class="contact-info">
-        <div class="contact-name">${user.displayName || user.name || 'Unknown'}</div>
-        <div class="contact-preview" style="font-size: 10px; opacity: 0.7;">ID: ${user.id.substring(0, 8)}...</div>
-      </div>
-    </div>
-  `).join('');
+  container.innerHTML = '';
   
-  document.querySelector('.search-container').appendChild(container);
+  users.forEach(user => {
+    const div = document.createElement('div');
+    div.className = 'contact-item';
+    div.dataset.identifier = user.id;
+    div.innerHTML = `
+      <div class="avatar small">${escapeHtml((user.displayName || user.name || 'U').charAt(0).toUpperCase())}</div>
+      <div class="contact-info">
+        <div class="contact-name">${escapeHtml(user.displayName || user.name || 'Unknown')}</div>
+        <div class="contact-preview" style="font-size: 10px; opacity: 0.7;">ID: ${escapeHtml(user.id?.substring(0, 8))}...</div>
+      </div>
+    `;
+    container.appendChild(div);
+  });
   
   container.querySelectorAll('.contact-item').forEach(item => {
     item.addEventListener('click', async () => {

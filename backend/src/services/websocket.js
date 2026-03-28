@@ -101,11 +101,18 @@ export const initWebSocket = (server) => {
       }
     });
 
-    socket.on('typing', (data) => {
-      const { recipientId } = data;
-      io.to(`user:${recipientId}`).emit('typing', {
-        userId: socket.userId
-      });
+    socket.on('typing', async (data) => {
+      try {
+        const { recipientId } = data;
+        const friendship = await findFriendship(socket.userId, recipientId);
+        if (friendship && friendship.status === 'accepted') {
+          io.to(`user:${recipientId}`).emit('typing', {
+            userId: socket.userId
+          });
+        }
+      } catch (error) {
+        console.error('Typing error:', error);
+      }
     });
 
     socket.on('read', async (data) => {
