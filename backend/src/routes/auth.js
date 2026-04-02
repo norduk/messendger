@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../db/postgres.js';
 import config from '../config/index.js';
-import { createUser, findUserByName, findUserByDisplayName, findUserByEmail } from '../models/User.js';
+import { createUser, findUserByName, findUserByDisplayName, findUserByEmail, findUserByIdentifier } from '../models/User.js';
 import { findInviteByCode, useInvite } from '../models/Invite.js';
 import { authenticate } from '../middleware/auth.js';
 
@@ -208,6 +208,36 @@ router.get('/me', authenticate, async (req, res) => {
       isAdmin: req.user.is_admin
     }
   });
+});
+
+router.delete('/account', authenticate, async (req, res) => {
+  try {
+    const { password } = req.body;
+    
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+
+    const user = await findUserByIdentifier(req.user.email);
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+
+    await query('UPDATE users SET display_name = $1, email = $2, phone = NULL, nickname = NULL, avatar_url = NULL, is_blocked = TRUE WHERE id = $3',
+      ['[Deleted]', `deleted_${req.user.id}@deleted.local`, req.user.id]
+    );
+
+    await query('DELETE FROM messages WHERE sender_id = $1 OR recipient_id = $1', [req.user.id]);
+    await query('DELETE FROM friendships WHERE user_id = $1 OR friend_id = $1', [req.user.id]);
+
+    res.clearCookie('refreshToken', { path: '/api/auth' });
+    res.json({ message: 'Account deleted' });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
 });
 
 export default router;

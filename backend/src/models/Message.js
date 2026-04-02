@@ -1,5 +1,10 @@
 import { query } from '../db/postgres.js';
 
+export const findMessageById = async (id) => {
+  const result = await query('SELECT * FROM messages WHERE id = $1', [id]);
+  return result.rows[0];
+};
+
 export const createMessage = async ({ senderId, recipientId, encryptedContent, contentType, fileUrl, fileName, fileSize }) => {
   const result = await query(
     `INSERT INTO messages (sender_id, recipient_id, encrypted_content, content_type, file_url, file_name, file_size)

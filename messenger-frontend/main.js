@@ -12,6 +12,8 @@ let selectedMessages = new Set();
 let isSelectionMode = false;
 let deletedMessageIds = new Set();
 let tokenRefreshInterval = null;
+let notificationsEnabled = localStorage.getItem('notifications') !== 'false';
+let soundEnabled = localStorage.getItem('sound') !== 'false';
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -29,6 +31,67 @@ function escapeAttr(str) {
     '>': '&gt;',
     '&': '&amp;'
   })[c]);
+}
+
+function requestNotificationPermission() {
+  if (!('Notification' in window)) {
+    showToast('Браузер не поддерживает уведомления', 'error');
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    showToast('Разрешение уже получено', 'info');
+    return;
+  }
+  Notification.requestPermission().then(perm => {
+    if (perm === 'granted') {
+      showToast('Уведомления включены!', 'success');
+      new Notification('SecureMessenger', { body: 'Уведомления работают!' });
+    } else if (perm === 'denied') {
+      showToast('Уведомления заблокированы', 'error');
+    }
+  });
+}
+
+function showNotification(title, body, icon, friendId) {
+  if (!notificationsEnabled) return;
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  if (document.hasFocus() && selectedFriendId === friendId) return;
+  
+  try {
+    const n = new Notification(title, {
+      body: body,
+      icon: icon || '/favicon.ico',
+      tag: 'msg-' + friendId,
+      renotify: true
+    });
+    
+    n.onclick = () => {
+      window.focus();
+      selectChat(friendId);
+      n.close();
+    };
+    
+    setTimeout(() => n.close(), 5000);
+  } catch (e) {
+    console.warn('Notification error:', e);
+  }
+}
+
+function playNotificationSound() {
+  if (!soundEnabled) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 800;
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.15);
+  } catch (e) {}
 }
 
 function getStorageKey(userId) {
@@ -341,10 +404,10 @@ function setupMobileMenu() {
   const sidebar = document.querySelector('.sidebar');
   const mobileMenuBtnEmpty = document.getElementById('mobile-menu-btn-empty');
   
-  let overlay = document.querySelector('.mobile-overlay');
+  let overlay = document.querySelector('.overlay');
   if (!overlay) {
     overlay = document.createElement('div');
-    overlay.className = 'mobile-overlay';
+    overlay.className = 'overlay';
     document.getElementById('main-screen').appendChild(overlay);
   }
   
@@ -358,21 +421,54 @@ function setupMobileMenu() {
     } else {
       mobileMenuBtnEmpty.style.display = 'none';
       sidebar.classList.remove('open');
-      overlay.classList.remove('active');
+      overlay.classList.remove('on');
     }
   });
   
   if (mobileMenuBtnEmpty) {
     mobileMenuBtnEmpty.addEventListener('click', () => {
       sidebar.classList.add('open');
-      overlay.classList.add('active');
+      overlay.classList.add('on');
     });
   }
   
   overlay.addEventListener('click', () => {
     sidebar.classList.remove('open');
-    overlay.classList.remove('active');
+    overlay.classList.remove('on');
   });
+  
+  setupSidebarResize();
+}
+
+function setupSidebarResize() {
+  const sidebar = document.querySelector('.sidebar');
+  const handle = document.getElementById('sidebar-resize');
+  if (!handle || !sidebar) return;
+  
+  let startX, startWidth;
+  
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    startX = e.clientX;
+    startWidth = sidebar.offsetWidth;
+    handle.classList.add('active');
+    
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+  
+  function onMouseMove(e) {
+    const newWidth = startWidth + (e.clientX - startX);
+    if (newWidth >= 180 && newWidth <= 500) {
+      sidebar.style.width = newWidth + 'px';
+    }
+  }
+  
+  function onMouseUp() {
+    handle.classList.remove('active');
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+  }
 }
 
 function setupAuthTabs() {
@@ -488,6 +584,7 @@ async function initApp() {
     setupChatTabs();
     setupUserAvatarClick();
     startTokenRefresh();
+    requestNotificationPermission();
     
     if (currentUser?.id) {
       messages = loadMessagesFromStorage(currentUser.id);
@@ -521,12 +618,7 @@ function updateUserUI() {
   document.getElementById('current-user-name').textContent = currentUser.displayName || currentUser.email;
   const avatarEl = document.getElementById('current-user-avatar');
   if (currentUser.avatarUrl && currentUser.avatarUrl.startsWith('/uploads/')) {
-    const img = document.createElement('img');
-    img.src = escapeAttr(currentUser.avatarUrl);
-    img.className = 'avatar-img';
-    img.alt = 'Avatar';
-    avatarEl.innerHTML = '';
-    avatarEl.appendChild(img);
+    avatarEl.innerHTML = `<img src="${escapeAttr(currentUser.avatarUrl)}">`;
   } else {
     avatarEl.textContent = (currentUser.displayName || currentUser.email).charAt(0).toUpperCase();
   }
@@ -544,42 +636,31 @@ function showMyProfile() {
   const nickname = currentUser.nickname ? escapeHtml(currentUser.nickname) : '';
   const email = currentUser.email ? escapeHtml(currentUser.email) : '';
   const phone = currentUser.phone ? escapeHtml(currentUser.phone) : '';
-  const copyId = escapeAttr(nickname ? `@${currentUser.nickname}` : currentUser.id);
   
+  document.getElementById('modal-title').textContent = 'Профиль';
   const modal = document.getElementById('modal-body');
   modal.innerHTML = `
-    <h2>Мой профиль</h2>
-    <div class="profile-container">
-      <div class="profile-avatar" id="profile-avatar-container"></div>
+    <div class="profile">
+      <div class="profile-av" id="profile-avatar-container"></div>
       <div class="profile-name">${displayName}</div>
-      ${nickname ? `<div class="profile-nickname">@${nickname}</div>` : ''}
-      <div class="profile-status online">● В сети</div>
-      <div class="profile-details">
-        <div class="profile-item">
-          <span class="profile-label">ID</span>
-          <span class="profile-value" style="cursor: pointer;" id="copy-id-btn">${nickname ? '@' + nickname : currentUser.id}</span>
+      ${nickname ? `<div class="profile-nick">@${nickname}</div>` : ''}
+      <div class="profile-status on">● В сети</div>
+      <div class="profile-card">
+        <div class="profile-row">
+          <span class="profile-lbl">ID</span>
+          <span class="profile-val" style="cursor:pointer;font-family:var(--mn);font-size:11px" id="copy-id-btn">${nickname ? '@' + nickname : currentUser.id.substring(0,12) + '...'}</span>
         </div>
-        ${email ? `<div class="profile-item">
-          <span class="profile-label">Email</span>
-          <span class="profile-value">${email}</span>
-        </div>` : ''}
-        ${phone ? `<div class="profile-item">
-          <span class="profile-label">Телефон</span>
-          <span class="profile-value">${phone}</span>
-        </div>` : ''}
+        ${email ? `<div class="profile-row"><span class="profile-lbl">Email</span><span class="profile-val">${email}</span></div>` : ''}
+        ${phone ? `<div class="profile-row"><span class="profile-lbl">Телефон</span><span class="profile-val">${phone}</span></div>` : ''}
       </div>
     </div>
   `;
   
   const avatarContainer = document.getElementById('profile-avatar-container');
   if (isAvatarValid) {
-    const img = document.createElement('img');
-    img.src = currentUser.avatarUrl;
-    img.className = 'profile-avatar-img';
-    img.alt = 'Avatar';
-    avatarContainer.appendChild(img);
+    avatarContainer.innerHTML = `<img src="${escapeAttr(currentUser.avatarUrl)}">`;
   } else {
-    avatarContainer.innerHTML = `<div class="profile-avatar-placeholder">${(currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase()}</div>`;
+    avatarContainer.textContent = (currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase();
   }
   
   document.getElementById('copy-id-btn').addEventListener('click', () => {
@@ -591,15 +672,22 @@ function showMyProfile() {
 }
 
 function setupSocket() {
+  if (!accessToken) {
+    console.log('No token, skipping socket connection');
+    return;
+  }
+  
   try {
-    const socketUrl = window.location.hostname === 'localhost' 
-      ? `http://localhost:3000` 
-      : window.location.origin;
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
     
-    console.log('Connecting to socket:', socketUrl);
-    
-    socket = io(socketUrl, {
-      auth: { token: accessToken }
+    socket = io(window.location.origin, {
+      auth: { token: accessToken },
+      reconnectionAttempts: 5,
+      reconnectionDelay: 3000,
+      timeout: 10000
     });
     
     socket.on('connect', () => {
@@ -607,7 +695,11 @@ function setupSocket() {
     });
     
     socket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
+      console.warn('Socket connection failed:', error.message);
+      if (error.message === 'Authentication failed' || error.message === 'Authentication required') {
+        socket.disconnect();
+        socket = null;
+      }
     });
     
     socket.on('disconnect', () => {
@@ -631,6 +723,18 @@ function setupSocket() {
       if (currentUser?.id) saveMessagesToStorage(currentUser.id);
       renderMessages(data.senderId);
       updateChatPreview(data.senderId);
+      
+      let content = data.encryptedContent;
+      try { content = decodeURIComponent(escape(atob(data.encryptedContent))); } catch (e) {}
+      if (data.contentType === 'image') content = '📷 Фото';
+      if (data.contentType === 'file') content = '📎 ' + (data.fileName || 'Файл');
+      
+      const friend = friends.find(f => f.id === data.senderId);
+      const senderName = friend?.display_name || friend?.email || 'Новое сообщение';
+      const avatarUrl = friend?.avatarUrl && friend.avatarUrl.startsWith('/uploads/') ? friend.avatarUrl : null;
+      
+      showNotification(senderName, content, avatarUrl, data.senderId);
+      playNotificationSound();
     });
     
     socket.on('typing', (data) => {
@@ -685,12 +789,7 @@ function renderFriends() {
   const list = document.getElementById('chats-list');
   
   if (friends.length === 0) {
-    list.innerHTML = `
-      <div style="text-align: center; padding: 40px; color: var(--text-secondary);">
-        <p>Нет друзей</p>
-        <p style="font-size: 12px; margin-top: 8px;">Добавьте друга чтобы начать общение</p>
-      </div>
-    `;
+    list.innerHTML = `<div style="text-align:center;padding:40px;color:var(--txF)"><p>Нет друзей</p><p style="font-size:12px;margin-top:8px">Добавьте друга чтобы начать общение</p></div>`;
     return;
   }
   
@@ -698,23 +797,23 @@ function renderFriends() {
   
   friends.forEach(friend => {
     const div = document.createElement('div');
-    div.className = `contact-item ${selectedFriendId === friend.id ? 'active' : ''}`;
+    div.className = `contact ${selectedFriendId === friend.id ? 'active' : ''}`;
     div.dataset.id = friend.id;
     
     const isAvatarValid = friend.avatarUrl && friend.avatarUrl.startsWith('/uploads/');
     const avatarHtml = isAvatarValid 
-      ? `<img src="${escapeAttr(friend.avatarUrl)}" class="avatar-img" alt="Avatar">`
+      ? `<img src="${escapeAttr(friend.avatarUrl)}">`
       : escapeHtml((friend.display_name || friend.email || 'U').charAt(0).toUpperCase());
     
     div.innerHTML = `
-      <div class="avatar small ${friend.status === 'online' ? 'online' : ''}">${avatarHtml}</div>
+      <div class="av ${friend.status === 'online' ? 'online' : ''}">${avatarHtml}</div>
       <div class="contact-info">
         <div class="contact-name">${escapeHtml(friend.display_name || friend.email)}</div>
         <div class="contact-preview">${escapeHtml(getLastMessagePreview(friend.id))}</div>
       </div>
       <div class="contact-meta">
         <span class="contact-time">${escapeHtml(formatTime(messages[friend.id]?.slice(-1)[0]?.createdAt))}</span>
-        ${getUnreadCount(friend.id) > 0 ? `<span class="unread-badge">${getUnreadCount(friend.id)}</span>` : ''}
+        ${getUnreadCount(friend.id) > 0 ? `<span class="unread">${getUnreadCount(friend.id)}</span>` : ''}
       </div>
     `;
     
@@ -733,7 +832,7 @@ async function selectChat(friendId) {
   
   closeSettings();
   document.querySelector('.sidebar').classList.remove('open');
-  document.querySelector('.mobile-overlay')?.classList.remove('active');
+  document.querySelector('.overlay')?.classList.remove('on');
   
   if (!messages[friendId]) {
     const data = await api.get(`/messages/${friendId}?limit=50`);
@@ -766,32 +865,34 @@ function renderChatArea(friend) {
   
   const chatArea = document.getElementById('chat-area');
   chatArea.innerHTML = `
-    <div class="chat-header">
-      <button class="mobile-back-btn" id="mobile-back-btn">◀</button>
-      <div class="chat-header-info" id="chat-header-info" data-friend-id="${escapeAttr(friend.id)}" style="cursor: pointer;">
-        <div class="avatar small ${friend.status === 'online' ? 'online' : ''}">${avatarHtml}</div>
+    <div class="chat-hdr">
+      <button class="back-btn" id="mobile-back-btn">◀</button>
+      <div class="chat-hdr-info" id="chat-header-info" data-friend-id="${escapeAttr(friend.id)}">
+        <div class="av sm ${friend.status === 'online' ? 'online' : ''}">${avatarHtml}</div>
         <div>
           <div class="user-name">${escapeHtml(friend.display_name || friend.email)}</div>
           <div class="user-status">${friend.status === 'online' ? 'В сети' : 'Не в сети'}</div>
         </div>
       </div>
-      <div class="chat-header-actions">
+      <div class="chat-hdr-actions">
         <button class="btn-icon" id="select-messages-btn" title="Выбрать">☑️</button>
       </div>
     </div>
-    <div class="selection-bar" id="selection-bar" style="display: none;">
-      <button class="btn-icon" id="cancel-selection-btn" title="Отмена">✖️</button>
-      <span id="selection-count">Выбрано: 0</span>
-      <button class="btn btn-danger btn-sm" id="delete-selected-btn">Удалить выбранные</button>
-    </div>
-    <div class="chat-messages scrollbar" id="chat-messages"></div>
-    <div class="typing-indicator" id="typing-indicator" style="display: none;"></div>
-    <div class="chat-input-container">
-      <div class="chat-input-wrapper">
-        <input type="file" id="file-input" class="file-input" accept="image/*,video/*,.pdf,.doc,.docx">
-        <button class="btn-icon attach-btn" id="attach-btn" title="Прикрепить">📎</button>
-        <textarea class="chat-input" id="message-input" placeholder="Сообщение" rows="1"></textarea>
-        <button class="btn-send" id="send-btn">➤</button>
+    <div class="chat-area-inner">
+      <div class="sel-bar" id="selection-bar" style="display: none;">
+        <button class="btn-icon" id="cancel-selection-btn">✖️</button>
+        <span id="selection-count">Выбрано: 0</span>
+        <button class="btn btn-danger btn-sm" id="delete-selected-btn">Удалить</button>
+      </div>
+      <div class="messages" id="chat-messages"></div>
+      <div class="typing" id="typing-indicator" style="display: none;"></div>
+      <div class="input-bar">
+        <div class="input-wrap">
+          <input type="file" id="file-input" class="file-input" accept="image/*,video/*,.pdf,.doc,.docx">
+          <button class="attach-btn" id="attach-btn">📎</button>
+          <textarea class="msg-input" id="message-input" placeholder="Сообщение" rows="1"></textarea>
+          <button class="send-btn" id="send-btn">➤</button>
+        </div>
       </div>
     </div>
   `;
@@ -803,7 +904,7 @@ function renderChatArea(friend) {
   
   document.getElementById('mobile-back-btn').addEventListener('click', () => {
     document.querySelector('.sidebar').classList.add('open');
-    document.querySelector('.mobile-overlay')?.classList.add('active');
+    document.querySelector('.overlay')?.classList.add('on');
   });
   
   document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
@@ -951,46 +1052,57 @@ function renderMessages(friendId) {
   if (!container) return;
   
   const friendMessages = messages[friendId] || [];
+  container.innerHTML = '';
   
-  container.innerHTML = friendMessages.map(msg => {
+  friendMessages.forEach(msg => {
     const isSent = msg.sender_id === currentUser.id;
     let content = msg.encrypted_content;
     
     if (msg.content_type === 'text') {
-      try {
-        content = decodeURIComponent(escape(atob(msg.encrypted_content)));
-      } catch (e) {
-        content = msg.encrypted_content;
-      }
+      try { content = decodeURIComponent(escape(atob(msg.encrypted_content))); } catch (e) { content = msg.encrypted_content; }
     }
     
     const fileUrl = msg.file_url || '';
     const fullUrl = fileUrl.startsWith('/') ? `${window.location.origin}/api${fileUrl}` : fileUrl;
     const isSelected = selectedMessages.has(msg.id);
     
-    return `
-      <div class="message ${isSent ? 'sent' : 'received'} ${isSelected ? 'selected' : ''}" data-id="${msg.id}" data-friend-id="${friendId}">
-        ${isSelectionMode && isSent ? `
-          <div class="message-checkbox">
-            <input type="checkbox" class="msg-checkbox" data-msg-id="${msg.id}" ${isSelected ? 'checked' : ''}>
-          </div>
-        ` : ''}
-        ${msg.content_type === 'text' ? `<div class="message-content">${escapeHtml(content)}</div>` : ''}
-        ${msg.content_type === 'image' && fileUrl ? `<img src="${fullUrl}" class="message-image clickable-image" alt="Изображение" data-full-url="${fullUrl}">` : ''}
-        ${msg.content_type === 'file' && fileUrl ? `
-          <a href="${fullUrl}" target="_blank" class="message-file">
-            📄 ${msg.file_name || 'Файл'}
-          </a>
-        ` : ''}
-        <div class="message-meta">
-          <span>${formatTime(msg.created_at)}</span>
-          ${isSent ? `<span class="message-status">${getStatusIcon(msg.status)}</span>` : ''}
-          ${isSent && !isSelectionMode ? `<button class="delete-msg-btn" data-msg-id="${msg.id}" data-friend-id="${friendId}" title="Удалить">🗑</button>` : ''}
-          ${msg.file_url && isSent && !isSelectionMode ? `<button class="delete-file-btn" data-msg-id="${msg.id}" data-friend-id="${friendId}" title="Удалить файл">📄🗑</button>` : ''}
-        </div>
-      </div>
-    `;
-  }).join('');
+    const div = document.createElement('div');
+    div.className = `msg ${isSent ? 'mine' : 'other'} ${isSelected ? 'selected' : ''}`;
+    div.dataset.id = msg.id;
+    
+    let inner = '';
+    if (isSelectionMode && isSent) {
+      inner += `<input type="checkbox" class="sel-cb" data-msg-id="${msg.id}" ${isSelected ? 'checked' : ''}>`;
+    }
+    
+    if (!isSent) {
+      const friend = friends.find(f => f.id === msg.sender_id);
+      const isAvatarValid = friend?.avatarUrl && friend.avatarUrl.startsWith('/uploads/');
+      const av = isAvatarValid ? `<img src="${escapeAttr(friend.avatarUrl)}">` : (friend?.display_name || friend?.email || 'U').charAt(0).toUpperCase();
+      inner += `<div class="av sm">${av}</div>`;
+    }
+    
+    inner += '<div style="flex:1;min-width:0">';
+    
+    if (!isSent) {
+      const friend = friends.find(f => f.id === msg.sender_id);
+      const isAvatarValid = friend?.avatarUrl && friend.avatarUrl.startsWith('/uploads/');
+      const av = isAvatarValid ? `<img src="${escapeAttr(friend.avatarUrl)}">` : (friend?.display_name || friend?.email || 'U').charAt(0).toUpperCase();
+      inner += `<div class="msg-head"><div class="av sm">${av}</div><span class="msg-sender">${escapeHtml(friend?.display_name || friend?.email || 'User')}</span></div>`;
+    }
+    
+    if (msg.content_type === 'text') inner += `<div class="msg-text">${escapeHtml(content)}</div>`;
+    if (msg.content_type === 'image' && fileUrl) inner += `<img src="${fullUrl}" class="msg-img" alt="Image">`;
+    if (msg.content_type === 'file' && fileUrl) inner += `<a href="${fullUrl}" target="_blank" class="msg-file">📄 ${escapeHtml(msg.file_name || 'Файл')}</a>`;
+    
+    const checkMark = msg.status === 'read' ? '<span class="msg-check">✓✓</span>' : msg.status === 'delivered' ? '✓✓' : '✓';
+    inner += `<div class="msg-head" style="justify-content:${isSent ? 'flex-end' : 'flex-start'}"><span class="msg-time">${formatTime(msg.created_at)}</span>${isSent ? `<span class="msg-status">${checkMark}</span>` : ''}</div>`;
+    
+    inner += '</div>';
+    
+    div.innerHTML = inner;
+    container.appendChild(div);
+  });
   
   container.scrollTop = container.scrollHeight;
 }
@@ -1352,7 +1464,7 @@ function showSearchResults(users) {
 }
 
 function setupModals() {
-  document.querySelector('.modal-close').addEventListener('click', closeModal);
+  document.getElementById('modal-close-btn').addEventListener('click', closeModal);
   document.querySelector('.modal').addEventListener('click', (e) => {
     if (e.target.classList.contains('modal')) closeModal();
   });
@@ -1360,9 +1472,9 @@ function setupModals() {
   document.getElementById('settings-btn').addEventListener('click', openSettings);
   document.getElementById('settings-back-btn').addEventListener('click', closeSettings);
   
-  document.querySelectorAll('.settings-nav-btn').forEach(btn => {
+  document.querySelectorAll('.settings-tab').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.settings-nav-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.settings-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       renderSettingsTab(btn.dataset.settingsTab);
     });
@@ -1373,10 +1485,10 @@ function openSettings() {
   document.querySelector('.chat-area').style.display = 'none';
   document.getElementById('settings-panel').classList.add('active');
   document.querySelector('.sidebar').classList.remove('open');
-  document.querySelector('.mobile-overlay')?.classList.remove('active');
+  document.querySelector('.overlay')?.classList.remove('on');
   
-  document.querySelectorAll('.settings-nav-btn').forEach(b => b.classList.remove('active'));
-  document.querySelector('.settings-nav-btn[data-settings-tab="profile"]').classList.add('active');
+  document.querySelectorAll('.settings-tab').forEach(b => b.classList.remove('active'));
+  document.querySelector('.settings-tab[data-settings-tab="profile"]').classList.add('active');
   renderSettingsTab('profile');
 }
 
@@ -1399,99 +1511,69 @@ function renderProfileView(container) {
   const isOnline = true;
   
   container.innerHTML = `
-    <div class="profile-view" id="profile-view-mode">
-      <div class="profile-avatar-large">
-        ${currentUser.avatarUrl ? 
-          `<img src="${currentUser.avatarUrl}" class="avatar-img" alt="Avatar">` : 
-          `<div class="profile-avatar-placeholder">${(currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase()}</div>`
-        }
-      </div>
-      <div class="profile-display-name">${currentUser.displayName || 'Без имени'}</div>
-      ${currentUser.nickname ? `<div class="profile-display-nickname">@${currentUser.nickname}</div>` : ''}
-      <div class="profile-status-text">${isOnline ? '● В сети' : '○ Не в сети'}</div>
-      
-      <div class="profile-info-list">
-        <div class="profile-info-item">
-          <div class="profile-info-icon">${currentUser.nickname ? '@' : '🆔'}</div>
-          <div class="profile-info-details">
-            <div class="profile-info-label">ID</div>
-            <div class="profile-info-value" style="${currentUser.nickname ? '' : 'font-family: monospace;'} cursor: pointer;" onclick="navigator.clipboard.writeText('${currentUser.nickname ? '@' + currentUser.nickname : currentUser.id}'); showToast('ID скопирован', 'success');">${currentUser.nickname ? '@' + currentUser.nickname : currentUser.id}</div>
+    <div id="profile-view-mode">
+      <div class="settings-av">
+        <div class="settings-av-wrap">
+          <div class="settings-av-preview" id="profile-avatar-display">
+            ${currentUser.avatarUrl ? `<img src="${escapeAttr(currentUser.avatarUrl)}">` : escapeHtml((currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase())}
           </div>
         </div>
-        ${currentUser.email ? `
-        <div class="profile-info-item">
-          <div class="profile-info-icon">✉️</div>
-          <div class="profile-info-details">
-            <div class="profile-info-label">Email</div>
-            <div class="profile-info-value">${currentUser.email}</div>
-          </div>
-        </div>` : ''}
-        ${currentUser.phone ? `
-        <div class="profile-info-item">
-          <div class="profile-info-icon">📱</div>
-          <div class="profile-info-details">
-            <div class="profile-info-label">Телефон</div>
-            <div class="profile-info-value">${currentUser.phone}</div>
-          </div>
-        </div>` : ''}
+      </div>
+      <div style="text-align:center;margin-bottom:16px">
+        <div class="profile-name">${escapeHtml(currentUser.displayName || 'Без имени')}</div>
+        ${currentUser.nickname ? `<div class="profile-nick">@${escapeHtml(currentUser.nickname)}</div>` : ''}
+        <div class="profile-status ${isOnline ? 'on' : ''}">${isOnline ? '● В сети' : '○ Не в сети'}</div>
       </div>
       
-      <button class="btn btn-primary" id="edit-profile-btn">Редактировать профиль</button>
+      <div class="profile-card">
+        <div class="profile-row">
+          <span class="profile-lbl">ID</span>
+          <span class="profile-val" style="cursor:pointer;font-family:var(--mn);font-size:11px" onclick="navigator.clipboard.writeText('${escapeAttr(currentUser.nickname ? '@' + currentUser.nickname : currentUser.id)}'); showToast('ID скопирован', 'success')">${escapeHtml(currentUser.nickname ? '@' + currentUser.nickname : currentUser.id.substring(0,12) + '...')}</span>
+        </div>
+        ${currentUser.email ? `<div class="profile-row"><span class="profile-lbl">Email</span><span class="profile-val">${escapeHtml(currentUser.email)}</span></div>` : ''}
+        ${currentUser.phone ? `<div class="profile-row"><span class="profile-lbl">Телефон</span><span class="profile-val">${escapeHtml(currentUser.phone)}</span></div>` : ''}
+      </div>
+      
+      <button class="btn btn-primary" id="edit-profile-btn" style="width:100%;margin-top:16px">Редактировать профиль</button>
     </div>
     
-    <div class="profile-edit-section" id="profile-edit-mode">
-      <div class="edit-avatar-row">
-        <div class="edit-avatar-preview" id="edit-avatar-preview">
-          ${currentUser.avatarUrl ? 
-            `<img src="${currentUser.avatarUrl}" class="avatar-img" alt="Avatar">` : 
-            `<div class="profile-avatar-placeholder" style="font-size: 24px;">${(currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase()}</div>`
-          }
+    <div id="profile-edit-mode" style="display:none">
+      <div class="edit-row">
+        <div class="edit-row-av" id="edit-avatar-preview">
+          ${currentUser.avatarUrl ? `<img src="${escapeAttr(currentUser.avatarUrl)}">` : escapeHtml((currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase())}
         </div>
-        <div class="edit-avatar-info">
-          <p>Рекомендуемый размер: 200x200px</p>
-          <input type="file" id="edit-avatar-input" class="file-input" accept="image/jpeg,image/png,image/gif,image/webp">
-          <button class="btn btn-secondary btn-sm" id="edit-avatar-btn">Изменить аватар</button>
+        <div class="edit-row-info">
+          <p>Аватарка (макс. 5 МБ)</p>
+          <input type="file" id="edit-avatar-input" class="file-input" accept="image/*">
+          <button class="btn btn-secondary btn-sm" id="edit-avatar-btn">Изменить</button>
         </div>
       </div>
       
-      <div class="edit-form">
-        <div class="edit-field">
-          <label for="edit-name">Имя</label>
-          <input type="text" id="edit-name" value="${currentUser.displayName || ''}" placeholder="Введите имя">
-        </div>
-        <div class="edit-field">
-          <label for="edit-nickname">Никнейм</label>
-          <input type="text" id="edit-nickname" value="${currentUser.nickname || ''}" placeholder="myname" pattern="[a-zA-Z0-9_]+">
-          <small style="color: var(--text-secondary); font-size: 11px;">Только латиница, цифры и _</small>
-        </div>
-        <div class="edit-field">
-          <label for="edit-email">Email</label>
-          <input type="email" id="edit-email" value="${currentUser.email || ''}" placeholder="example@mail.com">
-        </div>
-        <div class="edit-field">
-          <label for="edit-phone">Мобильный телефон</label>
-          <input type="tel" id="edit-phone" value="${currentUser.phone || ''}" placeholder="+7 (___) ___-__-__">
-        </div>
-        <div class="edit-actions">
-          <button class="btn btn-ghost" id="cancel-edit-btn">Отмена</button>
-          <button class="btn btn-primary" id="save-profile-btn">Сохранить</button>
-        </div>
+      <div class="settings-field"><label>Имя</label><input type="text" id="edit-name" value="${escapeAttr(currentUser.displayName || '')}" placeholder="Ваше имя"></div>
+      <div class="settings-field"><label>Никнейм</label><input type="text" id="edit-nickname" value="${escapeAttr(currentUser.nickname || '')}" placeholder="myname"><small style="color:var(--txF);font-size:11px">Латиница, цифры и _</small></div>
+      <div class="settings-field"><label>Email</label><input type="email" id="edit-email" value="${escapeAttr(currentUser.email || '')}" placeholder="example@mail.com"></div>
+      <div class="settings-field"><label>Телефон</label><input type="tel" id="edit-phone" value="${escapeAttr(currentUser.phone || '')}" placeholder="+7 (___) ___-__-__"></div>
+      
+      <div class="settings-actions">
+        <button class="btn btn-ghost" id="cancel-edit-btn">Отмена</button>
+        <button class="btn btn-primary" id="save-profile-btn">Сохранить</button>
       </div>
     </div>
     
     <div class="logout-section">
       <button class="btn btn-logout" id="settings-logout-btn">Выйти из аккаунта</button>
+      <button class="btn btn-danger" id="delete-account-btn" style="width:100%;margin-top:8px;opacity:.7;font-size:12px">Удалить аккаунт</button>
     </div>
   `;
   
   document.getElementById('edit-profile-btn').addEventListener('click', () => {
     document.getElementById('profile-view-mode').style.display = 'none';
-    document.getElementById('profile-edit-mode').classList.add('active');
+    document.getElementById('profile-edit-mode').style.display = '';
   });
   
   document.getElementById('cancel-edit-btn').addEventListener('click', () => {
     document.getElementById('profile-view-mode').style.display = '';
-    document.getElementById('profile-edit-mode').classList.remove('active');
+    document.getElementById('profile-edit-mode').style.display = 'none';
   });
   
   document.getElementById('edit-avatar-btn').addEventListener('click', () => {
@@ -1527,7 +1609,7 @@ function renderProfileView(container) {
         updateUserUI();
         
         const preview = document.getElementById('edit-avatar-preview');
-        preview.innerHTML = `<img src="${data.user.avatarUrl}" class="avatar-img" alt="Avatar">`;
+        preview.innerHTML = `<img src="${escapeAttr(data.user.avatarUrl)}">`;
         
         showToast('Аватар обновлён', 'success');
       } else {
@@ -1565,44 +1647,90 @@ function renderProfileView(container) {
     closeSettings();
     logout();
   });
+  
+  document.getElementById('delete-account-btn').addEventListener('click', () => {
+    openModal(`
+      <div class="modal-hdr"><h2>Удалить аккаунт</h2><button class="modal-close" id="modal-close-btn">&times;</button></div>
+      <div class="modal-body">
+        <p style="color:var(--rd);margin-bottom:12px;font-weight:600">Это действие необратимо!</p>
+        <p style="color:var(--txM);margin-bottom:16px;font-size:13px">Все ваши сообщения, друзья и данные будут удалены.</p>
+        <div class="fg"><label>Введите пароль для подтверждения</label><input type="password" id="delete-account-password" placeholder="••••••••"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-ghost" id="cancel-delete">Отмена</button><button class="btn btn-danger" id="confirm-delete">Удалить</button></div>
+    `);
+    
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    document.getElementById('cancel-delete').addEventListener('click', closeModal);
+    document.getElementById('confirm-delete').addEventListener('click', async () => {
+      const password = document.getElementById('delete-account-password').value;
+      if (!password) { showToast('Введите пароль', 'error'); return; }
+      
+      try {
+        await api.delete('/auth/account', { password });
+        closeModal();
+        showToast('Аккаунт удалён', 'success');
+        setTimeout(() => {
+          accessToken = null;
+          sessionStorage.clear();
+          location.reload();
+        }, 1000);
+      } catch (e) {
+        showToast(e.message || 'Ошибка', 'error');
+      }
+    });
+  });
 }
 
 function renderAccountView(container) {
   const lastSync = lastSyncTime ? new Date(parseInt(lastSyncTime)).toLocaleString() : 'Никогда';
+  const notifPerm = 'Notification' in window ? Notification.permission : 'unsupported';
   
   container.innerHTML = `
     <div class="settings-section">
-      <h3>Безопасность</h3>
-      <div class="profile-info-list">
-        <div class="profile-info-item">
-          <div class="profile-info-icon">🔐</div>
-          <div class="profile-info-details">
-            <div class="profile-info-label">Статус аккаунта</div>
-            <div class="profile-info-value" style="color: var(--success);">Активен</div>
-          </div>
+      <h3>Уведомления</h3>
+      <div class="profile-card">
+        <div class="profile-row">
+          <span class="profile-lbl">Push-уведомления</span>
+          <button class="tgl ${notificationsEnabled ? 'on' : ''}" id="notif-toggle"></button>
         </div>
+        <div class="profile-row">
+          <span class="profile-lbl">Звук уведомлений</span>
+          <button class="tgl ${soundEnabled ? 'on' : ''}" id="sound-toggle"></button>
+        </div>
+        ${notifPerm === 'default' ? `<div class="profile-row"><span class="profile-lbl">Разрешение</span><button class="btn btn-secondary btn-sm" id="notif-perm-btn">Разрешить</button></div>` : ''}
+        ${notifPerm === 'denied' ? `<div class="profile-row"><span class="profile-lbl">Разрешение</span><span style="color:var(--rd);font-size:12px">Заблокировано в браузере</span></div>` : ''}
       </div>
     </div>
     <div class="settings-section">
       <h3>Синхронизация</h3>
-      <div class="profile-info-list">
-        <div class="profile-info-item">
-          <div class="profile-info-icon">🔄</div>
-          <div class="profile-info-details">
-            <div class="profile-info-label">Статус</div>
-            <div class="profile-info-value" style="color: var(--success);">Автоматически каждые 10 мин.</div>
-          </div>
-        </div>
-        <div class="profile-info-item">
-          <div class="profile-info-icon">🕐</div>
-          <div class="profile-info-details">
-            <div class="profile-info-label">Последняя синхронизация</div>
-            <div class="profile-info-value">${lastSync}</div>
-          </div>
-        </div>
+      <div class="profile-card">
+        <div class="profile-row"><span class="profile-lbl">Статус</span><span class="profile-val" style="color:var(--gr)">Автоматически каждые 10 мин.</span></div>
+        <div class="profile-row"><span class="profile-lbl">Последняя синхр.</span><span class="profile-val">${escapeHtml(lastSync)}</span></div>
       </div>
     </div>
   `;
+  
+  document.getElementById('notif-toggle')?.addEventListener('click', toggleNotifications);
+  document.getElementById('sound-toggle')?.addEventListener('click', toggleSound);
+  document.getElementById('notif-perm-btn')?.addEventListener('click', () => {
+    requestNotificationPermission();
+    setTimeout(() => renderSettingsTab('account'), 500);
+  });
+}
+
+function toggleNotifications() {
+  notificationsEnabled = !notificationsEnabled;
+  localStorage.setItem('notifications', notificationsEnabled);
+  const btn = document.getElementById('notif-toggle');
+  btn.classList.toggle('on', notificationsEnabled);
+  if (notificationsEnabled) requestNotificationPermission();
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  localStorage.setItem('sound', soundEnabled);
+  const btn = document.getElementById('sound-toggle');
+  btn.classList.toggle('on', soundEnabled);
 }
 
 function showModal(title, content) {
@@ -1692,58 +1820,42 @@ async function showFriendProfile(friendId) {
   try {
     const statusData = await api.get(`/users/online-status/${friendId}`);
     isOnline = statusData.online;
-    
     const userData = await api.get(`/users/${friendId}`);
-    if (userData.user?.lastSeen) {
-      lastSeen = userData.user.lastSeen;
-    }
-    if (userData.user?.nickname) {
-      nickname = userData.user.nickname;
-    }
+    if (userData.user?.lastSeen) lastSeen = userData.user.lastSeen;
+    if (userData.user?.nickname) nickname = userData.user.nickname;
   } catch (e) {
     console.error('Failed to get online status:', e);
   }
   
   const lastSeenText = isOnline ? 'В сети' : (lastSeen ? formatLastSeen(lastSeen) : 'Недавно');
   const displayName = escapeHtml(friend.display_name || friend.email);
-  const displayId = nickname ? escapeHtml(`@${nickname}`) : friend.id;
   const email = friend.email ? escapeHtml(friend.email) : '';
   const isAvatarValid = friend.avatarUrl && friend.avatarUrl.startsWith('/uploads/');
   
+  document.getElementById('modal-title').textContent = 'Профиль';
   const modal = document.getElementById('modal-body');
   modal.innerHTML = `
-    <h2>Профиль</h2>
-    <div class="profile-container">
-      <div class="profile-avatar" id="friend-avatar-container"></div>
+    <div class="profile">
+      <div class="profile-av" id="friend-avatar-container"></div>
       <div class="profile-name">${displayName}</div>
-      ${nickname ? `<div class="profile-nickname">@${escapeHtml(nickname)}</div>` : ''}
-      <div class="profile-status ${isOnline ? 'online' : ''}">${isOnline ? '● В сети' : '○ Не в сети'}</div>
-      <div class="profile-details">
-        <div class="profile-item">
-          <span class="profile-label">ID</span>
-          <span class="profile-value" style="${nickname ? '' : 'font-family: monospace; font-size: 11px;'} cursor: pointer;" id="friend-copy-id-btn">${displayId}</span>
+      ${nickname ? `<div class="profile-nick">@${escapeHtml(nickname)}</div>` : ''}
+      <div class="profile-status ${isOnline ? 'on' : ''}">${isOnline ? '● В сети' : '○ Не в сети'}</div>
+      <div class="profile-card">
+        <div class="profile-row">
+          <span class="profile-lbl">ID</span>
+          <span class="profile-val" style="cursor:pointer;font-family:var(--mn);font-size:11px" id="friend-copy-id-btn">${nickname ? '@' + escapeHtml(nickname) : friend.id.substring(0,12) + '...'}</span>
         </div>
-        ${email ? `<div class="profile-item">
-          <span class="profile-label">Email</span>
-          <span class="profile-value">${email}</span>
-        </div>` : ''}
-        <div class="profile-item">
-          <span class="profile-label">Последний онлайн</span>
-          <span class="profile-value">${escapeHtml(lastSeenText)}</span>
-        </div>
+        ${email ? `<div class="profile-row"><span class="profile-lbl">Email</span><span class="profile-val">${email}</span></div>` : ''}
+        <div class="profile-row"><span class="profile-lbl">Последний онлайн</span><span class="profile-val">${escapeHtml(lastSeenText)}</span></div>
       </div>
     </div>
   `;
   
   const avatarContainer = document.getElementById('friend-avatar-container');
   if (isAvatarValid) {
-    const img = document.createElement('img');
-    img.src = friend.avatarUrl;
-    img.className = 'profile-avatar-img';
-    img.alt = 'Avatar';
-    avatarContainer.appendChild(img);
+    avatarContainer.innerHTML = `<img src="${escapeAttr(friend.avatarUrl)}">`;
   } else {
-    avatarContainer.innerHTML = `<div class="profile-avatar-placeholder">${escapeHtml((friend.display_name || friend.email || 'U').charAt(0).toUpperCase())}</div>`;
+    avatarContainer.textContent = (friend.display_name || friend.email || 'U').charAt(0).toUpperCase();
   }
   
   document.getElementById('friend-copy-id-btn').addEventListener('click', () => {

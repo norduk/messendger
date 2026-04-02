@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/auth.js';
 import { 
   createMessage, 
   getMessages, 
+  findMessageById,
   updateMessageStatus,
   markMessagesAsRead,
   deleteMessage,
@@ -34,13 +35,15 @@ router.get('/:friendId', authenticate, async (req, res) => {
   try {
     const { friendId } = req.params;
     const { limit = 50, before } = req.query;
+    
+    const safeLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 100);
 
     const friendship = await findFriendship(req.user.id, friendId);
     if (!friendship || friendship.status !== 'accepted') {
       return res.status(403).json({ error: 'Not a friend' });
     }
 
-    const messages = await getMessages(req.user.id, friendId, parseInt(limit), before);
+    const messages = await getMessages(req.user.id, friendId, safeLimit, before);
     
     await markMessagesAsRead(req.user.id, friendId);
 
@@ -107,7 +110,7 @@ router.post('/:friendId', authenticate, messageValidation, async (req, res) => {
 router.put('/:id/read', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
-    const message = await updateMessageStatus(id, 'read');
+    const message = await findMessageById(id);
     
     if (!message) {
       return res.status(404).json({ error: 'Message not found' });
@@ -117,7 +120,8 @@ router.put('/:id/read', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    res.json({ message });
+    const updated = await updateMessageStatus(id, 'read');
+    res.json({ message: updated });
   } catch (error) {
     console.error('Mark read error:', error);
     res.status(500).json({ error: 'Failed to mark as read' });
