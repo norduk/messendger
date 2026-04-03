@@ -1,6 +1,7 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { query } from '../db/postgres.js';
 import { 
   getAllUsers, 
@@ -28,6 +29,108 @@ import pool from '../db/postgres.js';
 const router = express.Router();
 
 router.use(verifyAdminApiKey);
+
+router.get('/config', async (req, res) => {
+  const adminKey = req.headers['x-admin-key'];
+  if (!adminKey) {
+    return res.status(401).json({ error: 'Admin key required' });
+  }
+  
+  const user = await query(
+    'SELECT admin_secret_path FROM users WHERE admin_key = $1',
+    [adminKey]
+  );
+  
+  if (user.rows.length === 0) {
+    return res.status(401).json({ error: 'Invalid admin key' });
+  }
+  
+  let secretPath = user.rows[0].admin_secret_path;
+  if (!secretPath) {
+    secretPath = crypto.randomBytes(8).toString('hex');
+    await query(
+      'UPDATE users SET admin_secret_path = $1 WHERE admin_key = $2',
+      [secretPath, adminKey]
+    );
+  }
+  
+  res.json({ secretPath });
+});
+
+router.post('/generate-key/:userId', requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const adminKey = crypto.randomBytes(24).toString('hex');
+    const adminSecretPath = crypto.randomBytes(8).toString('hex');
+    const hashedKey = await bcrypt.hash(adminKey, 10);
+    
+    await query(
+      'UPDATE users SET admin_key = $1, admin_secret_path = $2, is_admin = TRUE WHERE id = $3',
+      [hashedKey, adminSecretPath, userId]
+    );
+    
+    res.json({ 
+      adminKey, 
+      secretPath: adminSecretPath,
+      message: 'Admin key generated. Share these credentials with the user - they will not be shown again.' 
+    });
+  } catch (error) {
+    console.error('Generate key error:', error);
+    res.status(500).json({ error: 'Failed to generate admin key' });
+  }
+});
+
+router.delete('/revoke-key/:userId', requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    await query(
+      'UPDATE users SET admin_key = NULL, admin_secret_path = NULL, is_admin = FALSE WHERE id = $1',
+      [userId]
+    );
+    
+    res.json({ message: 'Admin key revoked' });
+  } catch (error) {
+    console.error('Revoke key error:', error);
+    res.status(500).json({ error: 'Failed to revoke admin key' });
+  }
+});
+
+import rateLimit from 'express-rate-limit';
+
+const verifyKeyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: 'Too many verification attempts, please try again later' }
+});
+
+router.get('/verify-key', verifyKeyLimiter, async (req, res) => {
+  try {
+    const adminKey = req.headers['x-admin-key'];
+    if (!adminKey) {
+      return res.status(401).json({ error: 'Admin key required' });
+    }
+    
+    const result = await query(
+      'SELECT id, display_name, email, admin_secret_path FROM users WHERE admin_key = $1',
+      [adminKey]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid admin key' });
+    }
+    
+    const user = result.rows[0];
+    res.json({ 
+      valid: true, 
+      secretPath: user.admin_secret_path,
+      user: { id: user.id, displayName: user.display_name, email: user.email } 
+    });
+  } catch (error) {
+    console.error('Verify key error:', error);
+    res.status(500).json({ error: 'Failed to verify admin key' });
+  }
+});
 
 router.get('/health', async (req, res) => {
   try {

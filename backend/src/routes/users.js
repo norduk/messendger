@@ -3,8 +3,9 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import bcrypt from 'bcryptjs';
 import { authenticate } from '../middleware/auth.js';
-import { updateUser, searchUsers } from '../models/User.js';
+import { updateUser, searchUsers, findUserById } from '../models/User.js';
 import { updateLastSeen, isUserOnline } from '../db/redis.js';
 
 const avatarStorage = multer.memoryStorage();
@@ -52,6 +53,23 @@ router.get('/search', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Search error:', error);
     res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+router.get('/admin-url', authenticate, async (req, res) => {
+  try {
+    const user = await findUserById(req.user.id);
+    if (!user || !user.is_admin) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    const secretPath = 'secret-admin';
+    const adminUrl = `/${secretPath}/`;
+    
+    res.json({ adminUrl });
+  } catch (error) {
+    console.error('Admin URL error:', error);
+    res.status(500).json({ error: 'Failed to generate admin URL' });
   }
 });
 
@@ -119,6 +137,42 @@ router.put('/profile', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Этот никнейм уже занят' });
     }
     res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+router.put('/password', authenticate, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Требуются текущий и новый пароль' });
+    }
+    
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Пароль должен быть минимум 8 символов' });
+    }
+    
+    if (newPassword.length > 128) {
+      return res.status(400).json({ error: 'Пароль слишком длинный' });
+    }
+    
+    const user = await findUserById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+    
+    const validPassword = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!validPassword) {
+      return res.status(400).json({ error: 'Неверный текущий пароль' });
+    }
+    
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
+    await updateUser(req.user.id, { passwordHash: newPasswordHash });
+    
+    res.json({ message: 'Пароль изменён' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ error: 'Ошибка смены пароля' });
   }
 });
 

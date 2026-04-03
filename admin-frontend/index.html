@@ -118,13 +118,42 @@ input,select,textarea{font-family:inherit;border:none;outline:none}
 <div class="mo" id="modal"><div class="ml" id="modalIn"></div></div>
 <div class="toast" id="toast"></div>
 <script>
-const P=50,S={sec:'dashboard',tok:sessionStorage.getItem('admin_token')||'',up:1};
+const P=50,S={sec:'dashboard',tok:sessionStorage.getItem('admin_token')||'',ak:localStorage.getItem('admin_key')||'',up:1};
 const AK='ENV_API_KEY',AU='/admin-api';
-async function api(m,e,b){const o={method:m,headers:{'Content-Type':'application/json','X-Admin-API-Key':AK}};if(S.tok)o.headers['Authorization']='Bearer '+S.tok;if(b)o.body=JSON.stringify(b);const r=await fetch(AU+e,o);if(r.status===204)return null;const d=await r.json();if(!r.ok)throw new Error(d.error||r.statusText);return d}
+const ADMIN_API_KEY = AK;
+async function api(m,e,b){const o={method:m,headers:{'Content-Type':'application/json','X-Admin-API-Key':ADMIN_API_KEY},credentials:'same-origin'};if(S.ak)o.headers['X-Admin-Key']=S.ak;if(b)o.body=JSON.stringify(b);const r=await fetch(AU+e,o);if(r.status===204)return null;const d=await r.json();if(!r.ok)throw new Error(d.error||r.statusText);return d}
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function toast(m,t='ok'){const e=document.getElementById('toast');e.className='toast vis '+t;e.textContent=m;clearTimeout(window._tt);window._tt=setTimeout(()=>e.classList.remove('vis'),3000)}
 function openM(h){document.getElementById('modalIn').innerHTML=h;document.getElementById('modal').classList.add('vis')}
 function closeM(){document.getElementById('modal').classList.remove('vis')}
+async function checkAdminKey() {
+  if (!S.ak) {
+    const path = window.location.pathname;
+    const match = path.match(/\/([a-f0-9]{16})\/?/);
+    if (match) {
+      S.ak = match[1];
+      localStorage.setItem('admin_key', S.ak);
+    }
+  }
+  if (S.ak) {
+    try {
+      const r = await fetch(AU + '/admin/verify-key', {
+        headers: { 'X-Admin-Key': S.ak, 'X-Admin-API-Key': ADMIN_API_KEY }
+      });
+      const d = await r.json();
+      if (r.ok && d.valid) {
+        sessionStorage.setItem('admin_token', S.ak);
+        S.tok = S.ak;
+        document.getElementById('loginOv').classList.add('hid');
+        document.getElementById('shell').classList.remove('hide');
+        rNav();
+        rCnt();
+        return true;
+      }
+    } catch(e) {}
+  }
+  return false;
+}
 const I={
 dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
 usr:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>',
@@ -140,7 +169,7 @@ blk:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
 const NAV=[{s:'Management'},{id:'dashboard',l:'Dashboard',i:I.dash},{id:'users',l:'Users',i:I.usr},{id:'invites',l:'Invites',i:I.inv},{p:1},{s:'System'},{id:'health',l:'Health Check',i:I.hlt},{id:'logs',l:'Action Logs',i:I.log},{p:1},{id:'logout',l:'Sign Out',i:I.out,d:1}];
 function rNav(){document.getElementById('nav').innerHTML=NAV.map(n=>{if(n.s)return'<div class="nav-lbl">'+n.s+'</div>';if(n.p)return'<div class="nav-sep"></div>';if(n.id==='logout')return'<button class="nav-i danger" onclick="logout()">'+n.i+'<span>'+n.l+'</span></button>';return'<button class="nav-i '+(S.sec===n.id?'on':'')+'" onclick="go(\''+n.id+'\')">'+n.i+'<span>'+n.l+'</span></button>'}).join('')}
 function go(id){S.sec=id;rNav();rCnt()}
-function logout(){S.tok='';sessionStorage.removeItem('admin_token');document.getElementById('shell').classList.add('hide');document.getElementById('loginOv').classList.remove('hid')}
+function logout(){S.tok='';S.ak='';sessionStorage.removeItem('admin_token');localStorage.removeItem('admin_key');document.getElementById('shell').classList.add('hide');document.getElementById('loginOv').classList.remove('hid')}
 function rCnt(){const c=document.getElementById('cnt');c.innerHTML='<div class="pg-t">Loading...</div>';const r={dashboard:rdash,users:rusr,invites:rinv,health:rhlt,logs:rlog};Promise.resolve((r[S.sec]||rdash)()).then(h=>c.innerHTML=h).catch(e=>c.innerHTML='<div class="pg-t">Error</div><p style="color:var(--rd)">'+esc(e.message)+'</p>')}
 async function rdash(){let s;try{s=await api('GET','/admin/stats')}catch(e){return'<div class="pg-t">Dashboard</div><p style="color:var(--rd)">'+esc(e.message)+'</p>'}return'<div class="pg-t">Dashboard</div><div class="pg-d">Server overview</div><div class="sg"><div class="sc"><div class="sc-h"><span class="sc-l">Users</span><div class="sc-i" style="background:rgba(35,165,90,.15);color:var(--gr)">'+I.usr+'</div></div><div class="sc-v">'+(s.users?.total||0)+'</div><div class="sc-s">'+(s.users?.admins||0)+' admins</div></div><div class="sc"><div class="sc-h"><span class="sc-l">Messages</span><div class="sc-i" style="background:var(--ac-g);color:var(--ac)">'+I.log+'</div></div><div class="sc-v">'+(s.messages?.total||0).toLocaleString()+'</div><div class="sc-s">'+(s.messages?.last24h||0)+' today</div></div><div class="sc"><div class="sc-h"><span class="sc-l">Invites</span><div class="sc-i" style="background:rgba(240,178,50,.15);color:var(--yl)">'+I.inv+'</div></div><div class="sc-v">'+(s.invites?.total||0)+'</div><div class="sc-s">'+(s.invites?.active||0)+' active</div></div><div class="sc"><div class="sc-h"><span class="sc-l">Database</span><div class="sc-i" style="background:rgba(88,101,242,.15);color:var(--ac)">'+I.set+'</div></div><div class="sc-v">'+(s.storage?.database||'-')+'</div><div class="sc-s">PostgreSQL</div></div></div>'}
 async function rusr(){let d;try{d=await api('GET','/admin/users')}catch(e){return'<div class="pg-t">Users</div><p style="color:var(--rd)">'+esc(e.message)+'</p>'}const u=d.users||[];return'<div class="pg-t">Users</div><div class="pg-d">'+u.length+' users</div><div class="fb"><input class="fs" id="us" placeholder="Search users..." oninput="fusr()"></div><div class="card"><div class="card-b np"><table class="tbl"><thead><tr><th>User</th><th>Email</th><th>Status</th><th>Role</th><th style="text-align:right">Actions</th></tr></thead><tbody id="ut">'+u.map(x=>'<tr data-n="'+esc((x.display_name||x.name||'').toLowerCase())+'" data-e="'+esc((x.email||'').toLowerCase())+'"><td><div style="display:flex;align-items:center;gap:8px"><div class="av" style="background:var(--ac)">'+esc((x.display_name||x.name||'U')[0].toUpperCase())+'</div><strong>'+esc(x.display_name||x.name)+'</strong></div></td><td style="font-size:12px;color:var(--tx-f)">'+esc(x.email||'-')+'</td><td>'+(x.is_blocked?'<span class="badge b-r">Blocked</span>':'<span class="badge b-g">Active</span>')+'</td><td>'+(x.is_admin?'<span class="badge b-a">Admin</span>':'<span class="badge b-m">User</span>')+'</td><td><div class="ag" style="justify-content:flex-end"><button class="ab" onclick="eusr(\''+esc(x.id)+'\',\''+esc(x.display_name||x.name)+'\','+x.is_admin+','+x.is_blocked+')">'+I.edt+'</button>'+(x.is_blocked?'<button class="ab" onclick="blk(\''+esc(x.id)+'\',false)">'+I.blk+'</button>':'<button class="ab danger" onclick="blk(\''+esc(x.id)+'\',true)">'+I.blk+'</button>')+(!x.is_admin?'<button class="ab danger" onclick="dusr(\''+esc(x.id)+'\')">'+I.del+'</button>':'')+'</div></td></tr>').join('')+'</tbody></table></div></div>'}
@@ -158,7 +187,12 @@ async function rhlt(){const c=document.getElementById('cnt');async function rf()
 async function rlog(){let d;try{d=await api('GET','/admin/logs')}catch(e){return'<div class="pg-t">Action Logs</div><p style="color:var(--rd)">'+esc(e.message)+'</p>'}const l=d.logs||[];return'<div class="pg-t">Action Logs</div><div class="pg-d">Admin action history</div><div class="card"><div class="card-b np"><table class="tbl"><thead><tr><th>Time</th><th>Admin</th><th>Action</th><th>Details</th></tr></thead><tbody>'+l.map(x=>'<tr><td style="font-size:12px;color:var(--tx-f);white-space:nowrap">'+new Date(x.created_at).toLocaleString()+'</td><td><strong>'+esc(x.admin_name||x.admin_id?.substring(0,8))+'</strong></td><td><span class="badge b-a">'+esc(x.action)+'</span></td><td style="font-size:12px;color:var(--tx-f)">'+esc(x.details||'-')+'</td></tr>').join('')+'</tbody></table></div></div>'}
 document.getElementById('loginB').onclick=async()=>{const u=document.getElementById('loginU').value.trim(),p=document.getElementById('loginP').value,e=document.getElementById('loginE');e.textContent='';try{const d=await api('POST','/admin-auth/login',{name:u,password:p});S.tok=d.token;sessionStorage.setItem('admin_token',S.tok);document.getElementById('loginOv').classList.add('hid');document.getElementById('shell').classList.remove('hide');rNav();rCnt()}catch(er){e.textContent=er.message}};
 ['loginU','loginP'].forEach(i=>document.getElementById(i).addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('loginB').click()}));
-(async()=>{if(!S.tok)return;try{await api('GET','/admin/health');document.getElementById('loginOv').classList.add('hid');document.getElementById('shell').classList.remove('hide');rNav();rCnt()}catch(e){sessionStorage.removeItem('admin_token');S.tok=''}})();
+(async()=>{
+  const isValid = await checkAdminKey();
+  if (isValid) return;
+  
+  if(!S.tok)return;
+  try{await api('GET','/admin/health');document.getElementById('loginOv').classList.add('hid');document.getElementById('shell').classList.remove('hide');rNav();rCnt()}catch(e){sessionStorage.removeItem('admin_token');S.tok=''}})();
 </script>
 </body>
 </html>

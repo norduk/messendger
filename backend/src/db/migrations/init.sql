@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
     avatar_url TEXT,
     is_blocked BOOLEAN DEFAULT FALSE,
     is_admin BOOLEAN DEFAULT FALSE,
+    admin_key VARCHAR(255),
+    admin_secret_path VARCHAR(32),
     last_seen TIMESTAMP DEFAULT NOW(),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()

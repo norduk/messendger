@@ -655,6 +655,7 @@ function showMyProfile() {
         </div>
         ${email ? `<div class="profile-row"><span class="profile-lbl">Email</span><span class="profile-val">${email}</span></div>` : ''}
         ${phone ? `<div class="profile-row"><span class="profile-lbl">Телефон</span><span class="profile-val">${phone}</span></div>` : ''}
+        ${currentUser.isAdmin ? `<div class="profile-row" style="margin-top:12px"><button class="btn btn-primary" id="open-admin-btn" style="width:100%">⚙️ Админ панель</button></div>` : ''}
       </div>
     </div>
   `;
@@ -670,6 +671,25 @@ function showMyProfile() {
     navigator.clipboard.writeText(nickname ? `@${currentUser.nickname}` : currentUser.id);
     showToast('ID скопирован', 'success');
   });
+  
+  const adminBtn = document.getElementById('open-admin-btn');
+  if (adminBtn) {
+    adminBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch(`${API_URL}/users/admin-url`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        const data = await res.json();
+        if (data.adminUrl) {
+          window.open(data.adminUrl, '_blank');
+        } else {
+          showToast('Ошибка получения ссылки', 'error');
+        }
+      } catch (e) {
+        showToast('Ошибка открытия админ панели', 'error');
+      }
+    });
+  }
   
   document.querySelector('.modal').classList.add('active');
 }
@@ -1962,6 +1982,13 @@ function renderProfileView(container) {
       <div class="settings-field"><label>Email</label><input type="email" id="edit-email" value="${escapeAttr(currentUser.email || '')}" placeholder="example@mail.com"></div>
       <div class="settings-field"><label>Телефон</label><input type="tel" id="edit-phone" value="${escapeAttr(currentUser.phone || '')}" placeholder="+7 (___) ___-__-__"></div>
       
+      <div class="settings-section" style="margin-top:16px;border-top:1px solid var(--bd);padding-top:16px">
+        <h3>Смена пароля</h3>
+        <div class="settings-field"><label>Текущий пароль</label><input type="password" id="edit-current-password" placeholder="Введите текущий пароль"></div>
+        <div class="settings-field"><label>Новый пароль</label><input type="password" id="edit-new-password" placeholder="Минимум 8 символов" minlength="8"></div>
+        <div class="settings-field"><label>Подтвердите пароль</label><input type="password" id="edit-confirm-password" placeholder="Повторите новый пароль"></div>
+      </div>
+      
       <div class="settings-actions">
         <button class="btn btn-ghost" id="cancel-edit-btn">Отмена</button>
         <button class="btn btn-primary" id="save-profile-btn">Сохранить</button>
@@ -2035,6 +2062,33 @@ function renderProfileView(container) {
     const nickname = document.getElementById('edit-nickname').value.replace(/[^a-zA-Z0-9_]/g, '');
     const email = document.getElementById('edit-email').value;
     const phone = document.getElementById('edit-phone').value;
+    
+    const currentPassword = document.getElementById('edit-current-password').value;
+    const newPassword = document.getElementById('edit-new-password').value;
+    const confirmPassword = document.getElementById('edit-confirm-password').value;
+    
+    if (currentPassword || newPassword || confirmPassword) {
+      if (!currentPassword || !newPassword || !confirmPassword) {
+        showToast('Заполните все поля для смены пароля', 'error');
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        showToast('Пароли не совпадают', 'error');
+        return;
+      }
+      if (newPassword.length < 8) {
+        showToast('Пароль должен быть минимум 8 символов', 'error');
+        return;
+      }
+      
+      try {
+        await api.put('/users/password', { currentPassword, newPassword });
+        showToast('Пароль изменён', 'success');
+      } catch (e) {
+        showToast(e.message || 'Ошибка смены пароля', 'error');
+        return;
+      }
+    }
     
     try {
       await api.put('/users/profile', { displayName, nickname, email, phone });

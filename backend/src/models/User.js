@@ -42,19 +42,50 @@ export const findUserById = async (id) => {
   return result.rows[0];
 };
 
-export const updateUser = async (id, { displayName, avatarUrl, publicKey, email, phone, nickname }) => {
+export const updateUser = async (id, { displayName, avatarUrl, publicKey, email, phone, nickname, passwordHash }) => {
+  const fields = [];
+  const values = [];
+  let paramIndex = 1;
+  
+  if (displayName !== undefined) {
+    fields.push(`display_name = $${paramIndex++}`);
+    values.push(displayName);
+  }
+  if (avatarUrl !== undefined) {
+    fields.push(`avatar_url = $${paramIndex++}`);
+    values.push(avatarUrl);
+  }
+  if (publicKey !== undefined) {
+    fields.push(`public_key = $${paramIndex++}`);
+    values.push(publicKey);
+  }
+  if (email !== undefined) {
+    fields.push(`email = $${paramIndex++}`);
+    values.push(email);
+  }
+  if (phone !== undefined) {
+    fields.push(`phone = $${paramIndex++}`);
+    values.push(phone);
+  }
+  if (nickname !== undefined) {
+    fields.push(`nickname = $${paramIndex++}`);
+    values.push(nickname);
+  }
+  if (passwordHash !== undefined) {
+    fields.push(`password_hash = $${paramIndex++}`);
+    values.push(passwordHash);
+  }
+  
+  if (fields.length === 0) {
+    return { id };
+  }
+  
+  fields.push(`updated_at = NOW()`);
+  values.push(id);
+  
   const result = await query(
-    `UPDATE users 
-     SET display_name = COALESCE($2, display_name),
-         avatar_url = COALESCE($3, avatar_url),
-         public_key = COALESCE($4, public_key),
-         email = COALESCE($5, email),
-         phone = COALESCE($6, phone),
-         nickname = COALESCE($7, nickname),
-         updated_at = NOW()
-     WHERE id = $1
-     RETURNING id, email, phone, public_key, display_name, avatar_url, nickname`,
-    [id, displayName, avatarUrl, publicKey, email, phone, nickname]
+    `UPDATE users SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING id, email, phone, public_key, display_name, avatar_url, nickname`,
+    values
   );
   return result.rows[0];
 };
