@@ -13,5 +13,14 @@
     "@capacitor/android": "^8.3.0",
     "@capacitor/cli": "^8.3.0",
     "@capacitor/core": "^8.3.0"
-  }
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/norduk/messendger.git"
+  },
+  "bugs": {
+    "url": "https://github.com/norduk/messendger/issues"
+  },
+  "homepage": "https://github.com/norduk/messendger#readme"
 }

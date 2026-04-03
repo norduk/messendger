@@ -42,13 +42,61 @@ CREATE TABLE IF NOT EXISTS messages (
     sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     encrypted_content TEXT NOT NULL,
-    content_type VARCHAR(20) DEFAULT 'text' CHECK (content_type IN ('text', 'image', 'video', 'file')),
+    content_type VARCHAR(20) DEFAULT 'text' CHECK (content_type IN ('text', 'image', 'video', 'file', 'gif')),
     file_url TEXT,
     file_name VARCHAR(255),
     file_size INTEGER,
+    reply_to_id UUID REFERENCES messages(id) ON DELETE SET NULL,
+    is_pinned BOOLEAN DEFAULT FALSE,
+    pinned_at TIMESTAMP,
+    pinned_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    edited_at TIMESTAMP,
+    is_deleted BOOLEAN DEFAULT FALSE,
     status VARCHAR(20) DEFAULT 'sent' CHECK (status IN ('sent', 'delivered', 'read')),
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Message reactions table
+CREATE TABLE IF NOT EXISTS message_reactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(message_id, user_id, emoji)
+);
+
+-- Message link previews table
+CREATE TABLE IF NOT EXISTS message_link_previews (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    title TEXT,
+    description TEXT,
+    image_url TEXT,
+    site_name TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Full-text search index
+CREATE INDEX IF NOT EXISTS idx_messages_fts ON messages using gin(to_tsvector('russian', COALESCE(encrypted_content, '')));
+
+-- Create FTS trigger function
+CREATE OR REPLACE FUNCTION messages_fts_trigger() RETURNS trigger AS $$
+BEGIN
+    NEW.fts_content := to_tsvector('russian', COALESCE(NEW.encrypted_content, ''));
+    RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+
+-- Add FTS column
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS fts_content tsvector GENERATED ALWAYS AS (to_tsvector('russian', COALESCE(encrypted_content, ''))) STORED;
+
+-- Indexes for new tables
+CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages(reply_to_id);
+CREATE INDEX IF NOT EXISTS idx_messages_pinned ON messages(recipient_id, is_pinned) WHERE is_pinned = TRUE;
+CREATE INDEX IF NOT EXISTS idx_reactions_message ON message_reactions(message_id);
+CREATE INDEX IF NOT EXISTS idx_reactions_user ON message_reactions(user_id);
 
 -- Admin logs table
 CREATE TABLE IF NOT EXISTS admin_logs (

@@ -88,6 +88,26 @@
     </div>
   </div>
 
+  <div class="modal" id="search-modal">
+    <div class="modal-box" style="width:500px;">
+      <div class="modal-hdr"><h2>Поиск сообщений</h2><button class="modal-close" id="search-close-btn">&times;</button></div>
+      <div class="modal-body">
+        <input type="text" id="search-messages-input" class="msg-input" placeholder="Введите текст для поиска..." style="width:100%;margin-bottom:12px;">
+        <div id="search-results"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="gif-picker-modal">
+    <div class="modal-box" style="width:400px;max-height:500px;">
+      <div class="modal-hdr"><h2>Выберите GIF</h2><button class="modal-close" id="gif-close-btn">&times;</button></div>
+      <div class="modal-body">
+        <input type="text" id="gif-search-input" placeholder="Поиск GIF..." style="width:100%;margin-bottom:10px;">
+        <div id="gif-results" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;max-height:350px;overflow-y:auto;"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-box" id="toast-container"></div>
 
   <script type="module" src="./main.js"></script>

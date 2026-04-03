@@ -3,11 +3,18 @@ import { authenticate } from '../middleware/auth.js';
 import { 
   createMessage, 
   getMessages, 
-  findMessageById,
   updateMessageStatus,
   markMessagesAsRead,
-  deleteMessage,
-  deleteMessages
+  softDeleteMessage,
+  deleteMessages,
+  updateMessageContent,
+  togglePinMessage,
+  addReaction,
+  removeReaction,
+  getMessageReactions,
+  searchMessages,
+  getPinnedMessages,
+  saveLinkPreview
 } from '../models/Message.js';
 import fs from 'fs';
 import path from 'path';
@@ -35,15 +42,13 @@ router.get('/:friendId', authenticate, async (req, res) => {
   try {
     const { friendId } = req.params;
     const { limit = 50, before } = req.query;
-    
-    const safeLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 100);
 
     const friendship = await findFriendship(req.user.id, friendId);
     if (!friendship || friendship.status !== 'accepted') {
       return res.status(403).json({ error: 'Not a friend' });
     }
 
-    const messages = await getMessages(req.user.id, friendId, safeLimit, before);
+    const messages = await getMessages(req.user.id, friendId, parseInt(limit), before);
     
     await markMessagesAsRead(req.user.id, friendId);
 
@@ -56,6 +61,17 @@ router.get('/:friendId', authenticate, async (req, res) => {
       fileUrl: m.file_url,
       fileName: m.file_name,
       fileSize: m.file_size,
+      replyToId: m.reply_to_id,
+      replyContent: m.reply_content,
+      replyContentType: m.reply_content_type,
+      replyFileUrl: m.reply_file_url,
+      replyUserName: m.reply_user_name,
+      isPinned: m.is_pinned,
+      pinnedAt: m.pinned_at,
+      pinnedByName: m.pinned_by_name,
+      editedAt: m.edited_at,
+      isDeleted: m.is_deleted,
+      reactions: m.reactions,
       status: m.status,
       createdAt: m.created_at
     }))});
@@ -65,10 +81,41 @@ router.get('/:friendId', authenticate, async (req, res) => {
   }
 });
 
+router.get('/:friendId/pinned', authenticate, async (req, res) => {
+  try {
+    const { friendId } = req.params;
+    const messages = await getPinnedMessages(req.user.id, friendId);
+    res.json({ messages });
+  } catch (error) {
+    console.error('Get pinned messages error:', error);
+    res.status(500).json({ error: 'Failed to get pinned messages' });
+  }
+});
+
+router.get('/search', authenticate, async (req, res) => {
+  try {
+    const { q, limit = 50 } = req.query;
+    if (!q) return res.status(400).json({ error: 'Search query required' });
+    const messages = await searchMessages(req.user.id, q, parseInt(limit));
+    res.json({ messages: messages.map(m => ({
+      id: m.id,
+      senderId: m.sender_id,
+      senderName: m.sender_name,
+      senderAvatar: m.sender_avatar,
+      encryptedContent: m.encrypted_content,
+      contentType: m.content_type,
+      createdAt: m.created_at
+    }))});
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ error: 'Failed to search messages' });
+  }
+});
+
 router.post('/:friendId', authenticate, messageValidation, async (req, res) => {
   try {
     const { friendId } = req.params;
-    const { encryptedContent, contentType, fileUrl, fileName, fileSize } = req.body;
+    const { encryptedContent, contentType, fileUrl, fileName, fileSize, replyToId, linkPreview } = req.body;
 
     const friendship = await findFriendship(req.user.id, friendId);
     if (!friendship || friendship.status !== 'accepted') {
@@ -82,10 +129,13 @@ router.post('/:friendId', authenticate, messageValidation, async (req, res) => {
       contentType: contentType || 'text',
       fileUrl,
       fileName,
-      fileSize
+      fileSize,
+      replyToId
     });
 
-    markAsDelivered(message);
+    if (linkPreview) {
+      await saveLinkPreview(message.id, linkPreview.url, linkPreview.title, linkPreview.description, linkPreview.imageUrl, linkPreview.siteName);
+    }
 
     res.status(201).json({
       message: {
@@ -97,6 +147,7 @@ router.post('/:friendId', authenticate, messageValidation, async (req, res) => {
         fileUrl: message.file_url,
         fileName: message.file_name,
         fileSize: message.file_size,
+        replyToId: message.reply_to_id,
         status: message.status,
         createdAt: message.created_at
       }
@@ -107,10 +158,63 @@ router.post('/:friendId', authenticate, messageValidation, async (req, res) => {
   }
 });
 
+router.put('/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { encryptedContent } = req.body;
+    const message = await updateMessageContent(id, req.user.id, encryptedContent);
+    if (!message) return res.status(404).json({ error: 'Message not found' });
+    res.json({ message: { id: message.id, encryptedContent: message.encrypted_content, editedAt: message.edited_at } });
+  } catch (error) {
+    console.error('Edit message error:', error);
+    res.status(500).json({ error: 'Failed to edit message' });
+  }
+});
+
+router.put('/:id/pin', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const message = await togglePinMessage(id, req.user.id);
+    if (!message) return res.status(404).json({ error: 'Message not found' });
+    res.json({ message: { id: message.id, isPinned: message.is_pinned, pinnedAt: message.pinned_at } });
+  } catch (error) {
+    console.error('Pin message error:', error);
+    res.status(500).json({ error: 'Failed to pin message' });
+  }
+});
+
+router.post('/:id/reactions', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { emoji, action } = req.body;
+    if (action === 'remove') {
+      await removeReaction(id, req.user.id, emoji);
+      res.json({ message: 'Reaction removed' });
+    } else {
+      const reaction = await addReaction(id, req.user.id, emoji);
+      res.json({ reaction });
+    }
+  } catch (error) {
+    console.error('Reaction error:', error);
+    res.status(500).json({ error: 'Failed to react' });
+  }
+});
+
+router.get('/:id/reactions', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reactions = await getMessageReactions(id);
+    res.json({ reactions });
+  } catch (error) {
+    console.error('Get reactions error:', error);
+    res.status(500).json({ error: 'Failed to get reactions' });
+  }
+});
+
 router.put('/:id/read', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
-    const message = await findMessageById(id);
+    const message = await updateMessageStatus(id, 'read');
     
     if (!message) {
       return res.status(404).json({ error: 'Message not found' });
@@ -120,8 +224,7 @@ router.put('/:id/read', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    const updated = await updateMessageStatus(id, 'read');
-    res.json({ message: updated });
+    res.json({ message });
   } catch (error) {
     console.error('Mark read error:', error);
     res.status(500).json({ error: 'Failed to mark as read' });
@@ -131,14 +234,10 @@ router.put('/:id/read', authenticate, async (req, res) => {
 router.delete('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
-    const deleted = await deleteMessage(id, req.user.id);
+    const deleted = await softDeleteMessage(id, req.user.id);
     
     if (!deleted) {
       return res.status(404).json({ error: 'Message not found' });
-    }
-
-    if (deleted.file_url) {
-      deleteFileFromDisk(deleted.file_url);
     }
 
     res.json({ message: 'Message deleted' });

@@ -2,7 +2,7 @@ import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import config from '../config/index.js';
 import { findUserById } from '../models/User.js';
-import { createMessage, updateMessageStatus } from '../models/Message.js';
+import { createMessage, updateMessageStatus, updateMessageContent, softDeleteMessage, togglePinMessage, addReaction, removeReaction } from '../models/Message.js';
 import { findFriendship } from '../models/Friendship.js';
 import { setOnlineStatus, removeOnlineStatus, isUserOnline } from '../db/redis.js';
 
@@ -53,7 +53,7 @@ export const initWebSocket = (server) => {
 
     socket.on('message', async (data) => {
       try {
-        const { recipientId, encryptedContent, contentType, tempId, fileUrl, fileName, fileSize } = data;
+        const { recipientId, encryptedContent, contentType, tempId, fileUrl, fileName, fileSize, replyToId } = data;
 
         const friendship = await findFriendship(socket.userId, recipientId);
         if (!friendship || friendship.status !== 'accepted') {
@@ -68,7 +68,8 @@ export const initWebSocket = (server) => {
           contentType: contentType || 'text',
           fileUrl,
           fileName,
-          fileSize
+          fileSize,
+          replyToId
         });
 
         const recipientOnline = await isUserOnline(recipientId);
@@ -83,6 +84,7 @@ export const initWebSocket = (server) => {
             fileUrl,
             fileName,
             fileSize,
+            replyToId,
             status: 'delivered',
             tempId
           });
@@ -101,13 +103,87 @@ export const initWebSocket = (server) => {
       }
     });
 
+    socket.on('edit_message', async (data) => {
+      try {
+        const { messageId, encryptedContent, recipientId } = data;
+        const message = await updateMessageContent(messageId, socket.userId, encryptedContent);
+        if (message) {
+          io.to(`user:${recipientId}`).emit('message_edited', {
+            id: message.id,
+            encryptedContent: message.encrypted_content,
+            editedAt: message.edited_at
+          });
+        }
+      } catch (error) {
+        console.error('Edit message error:', error);
+      }
+    });
+
+    socket.on('delete_message', async (data) => {
+      try {
+        const { messageId, recipientId } = data;
+        const deleted = await softDeleteMessage(messageId, socket.userId);
+        if (deleted) {
+          io.to(`user:${recipientId}`).emit('message_deleted', { id: messageId });
+        }
+      } catch (error) {
+        console.error('Delete message error:', error);
+      }
+    });
+
+    socket.on('pin_message', async (data) => {
+      try {
+        const { messageId, recipientId } = data;
+        const message = await togglePinMessage(messageId, socket.userId);
+        if (message) {
+          io.to(`user:${recipientId}`).emit('message_pinned', {
+            id: message.id,
+            isPinned: message.is_pinned,
+            pinnedAt: message.pinned_at
+          });
+        }
+      } catch (error) {
+        console.error('Pin message error:', error);
+      }
+    });
+
+    socket.on('add_reaction', async (data) => {
+      try {
+        const { messageId, emoji, recipientId } = data;
+        const reaction = await addReaction(messageId, socket.userId, emoji);
+        io.to(`user:${recipientId}`).emit('reaction_added', {
+          messageId,
+          emoji,
+          userId: socket.userId,
+          userName: socket.user.display_name
+        });
+      } catch (error) {
+        console.error('Add reaction error:', error);
+      }
+    });
+
+    socket.on('remove_reaction', async (data) => {
+      try {
+        const { messageId, emoji, recipientId } = data;
+        await removeReaction(messageId, socket.userId, emoji);
+        io.to(`user:${recipientId}`).emit('reaction_removed', {
+          messageId,
+          emoji,
+          userId: socket.userId
+        });
+      } catch (error) {
+        console.error('Remove reaction error:', error);
+      }
+    });
+
     socket.on('typing', async (data) => {
       try {
         const { recipientId } = data;
         const friendship = await findFriendship(socket.userId, recipientId);
         if (friendship && friendship.status === 'accepted') {
           io.to(`user:${recipientId}`).emit('typing', {
-            userId: socket.userId
+            userId: socket.userId,
+            userName: socket.user.display_name
           });
         }
       } catch (error) {

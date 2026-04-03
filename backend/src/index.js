@@ -21,38 +21,10 @@ import filesRoutes from './routes/files.js';
 import adminRoutes from './routes/admin.js';
 import adminAuthRoutes from './routes/adminAuth.js';
 
-import crypto from 'crypto';
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-
-const csrfTokens = new Map();
-
-const generateCsrfToken = () => crypto.randomBytes(32).toString('hex');
-
-const csrfProtection = (req, res, next) => {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-    const token = generateCsrfToken();
-    csrfTokens.set(token, Date.now());
-    res.setHeader('X-CSRF-Token', token);
-    
-    for (const [t, time] of csrfTokens) {
-      if (Date.now() - time > 3600000) csrfTokens.delete(t);
-    }
-    
-    return next();
-  }
-  
-  const token = req.headers['x-csrf-token'] || req.body?._csrf;
-  if (!token || !csrfTokens.has(token)) {
-    return res.status(403).json({ error: 'Invalid CSRF token' });
-  }
-  
-  csrfTokens.delete(token);
-  next();
-};
 
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -107,11 +79,6 @@ app.use('/api/admin', adminLimiter);
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.use(express.static(path.join(__dirname, '../messenger-frontend')));
-
-app.use('/api/auth', csrfProtection);
-app.use('/api/users', csrfProtection);
-app.use('/api/friends', csrfProtection);
-app.use('/api/messages', csrfProtection);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

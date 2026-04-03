@@ -390,8 +390,9 @@ function init() {
   setupAuthForms();
   setupSearch();
   setupModals();
-  setupMessageDelete();
+  setupMessageActions();
   setupMobileMenu();
+  setupNewFeatures();
   
   if (accessToken) {
     loadUser();
@@ -738,7 +739,63 @@ function setupSocket() {
     });
     
     socket.on('typing', (data) => {
-      showTypingIndicator(data.userId);
+      showTypingIndicator(data.userId, data.userName);
+    });
+    
+    socket.on('message_edited', (data) => {
+      const msg = findMessage(data.id);
+      if (msg) {
+        msg.encrypted_content = data.encryptedContent;
+        msg.edited_at = data.editedAt;
+        if (selectedFriendId) renderMessages(selectedFriendId);
+      }
+    });
+    
+    socket.on('message_deleted', (data) => {
+      const msg = findMessage(data.id);
+      if (msg) {
+        msg.is_deleted = true;
+        if (selectedFriendId) renderMessages(selectedFriendId);
+      }
+    });
+    
+    socket.on('message_pinned', (data) => {
+      const msg = findMessage(data.id);
+      if (msg) {
+        msg.isPinned = data.isPinned;
+        msg.pinnedAt = data.pinnedAt;
+        if (selectedFriendId) renderMessages(selectedFriendId);
+      }
+    });
+    
+    socket.on('reaction_added', (data) => {
+      const msg = findMessage(data.messageId);
+      if (msg) {
+        if (!msg.reactions) msg.reactions = [];
+        const existing = msg.reactions.find(r => r.emoji === data.emoji);
+        if (existing) {
+          existing.count++;
+          if (!existing.users) existing.users = [];
+          existing.users.push(data.userName);
+        } else {
+          msg.reactions.push({ emoji: data.emoji, count: 1, users: [data.userName] });
+        }
+        if (selectedFriendId) renderMessages(selectedFriendId);
+      }
+    });
+    
+    socket.on('reaction_removed', (data) => {
+      const msg = findMessage(data.messageId);
+      if (msg && msg.reactions) {
+        const existing = msg.reactions.find(r => r.emoji === data.emoji);
+        if (existing) {
+          existing.count--;
+          if (existing.count <= 0) {
+            msg.reactions = msg.reactions.filter(r => r.emoji !== data.emoji);
+          }
+        }
+        if (selectedFriendId) renderMessages(selectedFriendId);
+      }
     });
     
     socket.on('message_status', (data) => {
@@ -852,6 +909,18 @@ async function selectChat(friendId) {
   
   renderChatArea(friend);
   renderMessages(friendId);
+  markMessagesAsRead(friendId);
+}
+
+function markMessagesAsRead(friendId) {
+  const friendMessages = messages[friendId] || [];
+  friendMessages.forEach(msg => {
+    if (msg.recipient_id === currentUser?.id && msg.status !== 'read') {
+      msg.status = 'read';
+      socket.emit('read', { messageId: msg.id, senderId: friendId });
+    }
+  });
+  renderFriends();
 }
 
 function renderChatArea(friend) {
@@ -887,9 +956,11 @@ function renderChatArea(friend) {
       <div class="messages" id="chat-messages"></div>
       <div class="typing" id="typing-indicator" style="display: none;"></div>
       <div class="input-bar">
+        <div id="reply-preview"></div>
         <div class="input-wrap">
           <input type="file" id="file-input" class="file-input" accept="image/*,video/*,.pdf,.doc,.docx">
           <button class="attach-btn" id="attach-btn">📎</button>
+          <button class="attach-btn" id="gif-btn">🎞️</button>
           <textarea class="msg-input" id="message-input" placeholder="Сообщение" rows="1"></textarea>
           <button class="send-btn" id="send-btn">➤</button>
         </div>
@@ -899,6 +970,7 @@ function renderChatArea(friend) {
   
   setupMessageInput();
   setupSelectionMode();
+  setupGifPicker();
   
   document.getElementById('chat-header-info').addEventListener('click', () => showFriendProfile(friend.id));
   
@@ -1000,6 +1072,13 @@ async function sendMessage() {
   
   if (!content || !selectedFriendId) return;
   
+  const editMsgId = input.dataset.editMsgId;
+  if (editMsgId) {
+    await editMessage(editMsgId, content);
+    input.removeAttribute('data-edit-msg-id');
+    return;
+  }
+  
   const tempId = Date.now();
   const encryptedContent = btoa(unescape(encodeURIComponent(content)));
   
@@ -1007,7 +1086,8 @@ async function sendMessage() {
     recipientId: selectedFriendId,
     encryptedContent,
     contentType: 'text',
-    tempId
+    tempId,
+    replyToId: replyingToMsg?.id || null
   };
   
   if (!messages[selectedFriendId]) messages[selectedFriendId] = [];
@@ -1017,6 +1097,7 @@ async function sendMessage() {
     sender_id: currentUser.id,
     encrypted_content: encryptedContent,
     content_type: 'text',
+    replyToId: replyingToMsg?.id || null,
     status: 'sent',
     created_at: new Date().toISOString(),
     temp: true
@@ -1027,12 +1108,18 @@ async function sendMessage() {
   input.value = '';
   input.style.height = 'auto';
   
+  if (replyingToMsg) {
+    replyingToMsg = null;
+    document.getElementById('reply-preview').style.display = 'none';
+  }
+  
   socket.emit('message', messageData);
   
   try {
     const result = await api.post(`/messages/${selectedFriendId}`, {
       encryptedContent,
-      contentType: 'text'
+      contentType: 'text',
+      replyToId: replyingToMsg?.id || null
     });
     if (result.message) {
       const msgIndex = messages[selectedFriendId].findIndex(m => m.id === tempId);
@@ -1047,6 +1134,8 @@ async function sendMessage() {
   }
 }
 
+let replyingToMsg = null;
+
 function renderMessages(friendId) {
   const container = document.getElementById('chat-messages');
   if (!container) return;
@@ -1055,10 +1144,12 @@ function renderMessages(friendId) {
   container.innerHTML = '';
   
   friendMessages.forEach(msg => {
+    if (msg.is_deleted && !msg.temp) return;
+    
     const isSent = msg.sender_id === currentUser.id;
     let content = msg.encrypted_content;
     
-    if (msg.content_type === 'text') {
+    if (msg.content_type === 'text' || msg.content_type === 'gif') {
       try { content = decodeURIComponent(escape(atob(msg.encrypted_content))); } catch (e) { content = msg.encrypted_content; }
     }
     
@@ -1067,8 +1158,9 @@ function renderMessages(friendId) {
     const isSelected = selectedMessages.has(msg.id);
     
     const div = document.createElement('div');
-    div.className = `msg ${isSent ? 'mine' : 'other'} ${isSelected ? 'selected' : ''}`;
+    div.className = `msg ${isSent ? 'mine' : 'other'} ${isSelected ? 'selected' : ''} ${msg.is_pinned ? 'pinned' : ''}`;
     div.dataset.id = msg.id;
+    div.dataset.friendId = friendId;
     
     let inner = '';
     if (isSelectionMode && isSent) {
@@ -1077,23 +1169,42 @@ function renderMessages(friendId) {
     
     if (!isSent) {
       const friend = friends.find(f => f.id === msg.sender_id);
-      const isAvatarValid = friend?.avatarUrl && friend.avatarUrl.startsWith('/uploads/');
-      const av = isAvatarValid ? `<img src="${escapeAttr(friend.avatarUrl)}">` : (friend?.display_name || friend?.email || 'U').charAt(0).toUpperCase();
-      inner += `<div class="av sm">${av}</div>`;
+      inner += `<div class="msg-head"><span class="msg-sender">${escapeHtml(friend?.display_name || friend?.email || 'User')}</span></div>`;
     }
     
-    inner += '<div style="flex:1;min-width:0">';
-    
-    if (!isSent) {
-      const friend = friends.find(f => f.id === msg.sender_id);
-      const isAvatarValid = friend?.avatarUrl && friend.avatarUrl.startsWith('/uploads/');
-      const av = isAvatarValid ? `<img src="${escapeAttr(friend.avatarUrl)}">` : (friend?.display_name || friend?.email || 'U').charAt(0).toUpperCase();
-      inner += `<div class="msg-head"><div class="av sm">${av}</div><span class="msg-sender">${escapeHtml(friend?.display_name || friend?.email || 'User')}</span></div>`;
+    if (msg.replyToId && msg.replyContent) {
+      const replyPreview = msg.reply_content_type === 'image' ? '📷 Фото' : (msg.reply_file_url ? '📎 Файл' : escapeHtml(msg.replyContent.substring(0, 50)));
+      inner += `<div class="msg-reply-preview" data-reply-id="${msg.replyToId}"><span class="reply-label">Ответ ${escapeHtml(msg.replyUserName || 'User')}:</span><span class="reply-text">${replyPreview}</span></div>`;
     }
     
-    if (msg.content_type === 'text') inner += `<div class="msg-text">${escapeHtml(content)}</div>`;
-    if (msg.content_type === 'image' && fileUrl) inner += `<img src="${fullUrl}" class="msg-img" alt="Image">`;
+    if (msg.isPinned) {
+      inner += `<div class="msg-pinned-badge">📌 Закреплено</div>`;
+    }
+    
+    if (msg.content_type === 'text') inner += `<div class="msg-text" data-msg-id="${msg.id}">${escapeHtml(content)}</div>`;
+    if (msg.content_type === 'gif' && fileUrl) inner += `<img src="${fileUrl}" class="msg-gif" alt="GIF" data-full-url="${escapeAttr(fileUrl)}">`;
+    if (msg.content_type === 'image' && fileUrl) inner += `<img src="${fullUrl}" class="msg-img" alt="Image" data-full-url="${escapeAttr(fullUrl)}">`;
     if (msg.content_type === 'file' && fileUrl) inner += `<a href="${fullUrl}" target="_blank" class="msg-file">📄 ${escapeHtml(msg.file_name || 'Файл')}</a>`;
+    
+    if (msg.reactions && msg.reactions.length > 0) {
+      inner += '<div class="msg-reactions">';
+      msg.reactions.forEach(r => {
+        inner += `<span class="reaction" data-emoji="${escapeAttr(r.emoji)}" data-msg-id="${msg.id}">${r.emoji} ${r.count}</span>`;
+      });
+      inner += '</div>';
+    }
+    
+    if (msg.edited_at) {
+      inner += `<span class="msg-edited">(ред.)</span>`;
+    }
+    
+    inner += `<div class="msg-actions" data-msg-id="${msg.id}">
+      <button class="msg-action-btn reply-btn" title="Ответить">↩️</button>
+      <button class="msg-action-btn react-btn" title="Реакция">😊</button>
+      <button class="msg-action-btn pin-btn" title="${msg.isPinned ? 'Открепить' : 'Закрепить'}">📌</button>
+      ${isSent ? `<button class="msg-action-btn edit-btn" title="Редактировать">✏️</button>` : ''}
+      ${isSent ? `<button class="msg-action-btn delete-btn" title="Удалить">🗑️</button>` : ''}
+    </div>`;
     
     const checkMark = msg.status === 'read' ? '<span class="msg-check">✓✓</span>' : msg.status === 'delivered' ? '✓✓' : '✓';
     inner += `<div class="msg-head" style="justify-content:${isSent ? 'flex-end' : 'flex-start'}"><span class="msg-time">${formatTime(msg.created_at)}</span>${isSent ? `<span class="msg-status">${checkMark}</span>` : ''}</div>`;
@@ -1107,28 +1218,74 @@ function renderMessages(friendId) {
   container.scrollTop = container.scrollHeight;
 }
 
-function setupMessageDelete() {
+function setupMessageActions() {
   document.addEventListener('click', (e) => {
-    const btn = e.target.closest('.delete-msg-btn');
-    if (btn) {
-      const msgId = btn.dataset.msgId;
-      const friendId = btn.dataset.friendId;
-      deleteMessage(msgId, friendId);
-    }
-    
-    const fileBtn = e.target.closest('.delete-file-btn');
-    if (fileBtn) {
-      const msgId = fileBtn.dataset.msgId;
-      const friendId = fileBtn.dataset.friendId;
-      deleteMessage(msgId, friendId);
-    }
-    
-    const img = e.target.closest('.clickable-image');
-    if (img && !isSelectionMode) {
-      const fullUrl = img.dataset.fullUrl;
-      if (fullUrl) {
-        window.open(fullUrl, '_blank');
+    const replyBtn = e.target.closest('.reply-btn');
+    if (replyBtn) {
+      const msgId = replyBtn.closest('.msg-actions').dataset.msgId;
+      const msg = findMessage(msgId);
+      if (msg) {
+        replyingToMsg = msg;
+        showReplyPreview(msg);
       }
+      return;
+    }
+    
+    const reactBtn = e.target.closest('.react-btn');
+    if (reactBtn) {
+      const msgId = reactBtn.closest('.msg-actions').dataset.msgId;
+      showEmojiPicker(msgId);
+      return;
+    }
+    
+    const pinBtn = e.target.closest('.pin-btn');
+    if (pinBtn) {
+      const msgId = pinBtn.closest('.msg-actions').dataset.msgId;
+      const friendId = pinBtn.closest('.msg').dataset.friendId;
+      togglePinMessage(msgId, friendId);
+      return;
+    }
+    
+    const editBtn = e.target.closest('.edit-btn');
+    if (editBtn) {
+      const msgId = editBtn.closest('.msg-actions').dataset.msgId;
+      const msg = findMessage(msgId);
+      if (msg) {
+        startEditingMessage(msg);
+      }
+      return;
+    }
+    
+    const deleteBtn = e.target.closest('.delete-btn');
+    if (deleteBtn) {
+      const msgId = deleteBtn.closest('.msg-actions').dataset.msgId;
+      const friendId = deleteBtn.closest('.msg').dataset.friendId;
+      deleteMessage(msgId, friendId);
+      return;
+    }
+    
+    const reaction = e.target.closest('.reaction');
+    if (reaction) {
+      const msgId = reaction.dataset.msgId;
+      const emoji = reaction.dataset.emoji;
+      toggleReaction(msgId, emoji);
+      return;
+    }
+    
+    const replyPreview = e.target.closest('.msg-reply-preview');
+    if (replyPreview) {
+      const replyId = replyPreview.dataset.replyId;
+      scrollToMessage(replyId);
+      return;
+    }
+    
+    const msgImg = e.target.closest('.msg-img, .msg-gif');
+    if (msgImg && !isSelectionMode) {
+      const fullUrl = msgImg.dataset.fullUrl;
+      if (fullUrl) {
+        showLightbox(fullUrl);
+      }
+      return;
     }
   });
   
@@ -1141,9 +1298,101 @@ function setupMessageDelete() {
         selectedMessages.delete(msgId);
       }
       document.getElementById('selection-count').textContent = `Выбрано: ${selectedMessages.size}`;
-      e.target.closest('.message').classList.toggle('selected', e.target.checked);
     }
   });
+}
+
+function findMessage(msgId) {
+  for (const friendId in messages) {
+    const msg = messages[friendId].find(m => m.id === msgId);
+    if (msg) return msg;
+  }
+  return null;
+}
+
+function showReplyPreview(msg) {
+  let previewText = msg.encrypted_content;
+  try { previewText = decodeURIComponent(escape(atob(msg.encrypted_content))); } catch (e) {}
+  previewText = previewText.substring(0, 40) + (previewText.length > 40 ? '...' : '');
+  const replyPreview = document.getElementById('reply-preview');
+  if (replyPreview) {
+    replyPreview.innerHTML = `<span>Ответ: ${escapeHtml(msg.sender_id === currentUser.id ? 'Вы' : 'user')} - ${escapeHtml(previewText)}</span><button id="cancel-reply">✕</button>`;
+    replyPreview.style.display = 'flex';
+  }
+  document.getElementById('cancel-reply')?.addEventListener('click', () => {
+    replyingToMsg = null;
+    document.getElementById('reply-preview').style.display = 'none';
+  });
+}
+
+function showEmojiPicker(msgId) {
+  const emojis = ['👍', '👎', '❤️', '😂', '😢', '😮', '😡', '🎉', '🔥', '👀'];
+  let picker = document.getElementById('emoji-picker');
+  if (!picker) {
+    picker = document.createElement('div');
+    picker.id = 'emoji-picker';
+    picker.className = 'emoji-picker';
+    document.body.appendChild(picker);
+  }
+  picker.innerHTML = emojis.map(e => `<button class="emoji-btn" data-emoji="${e}">${e}</button>`).join('');
+  picker.style.display = 'flex';
+  picker.style.position = 'absolute';
+  picker.dataset.msgId = msgId;
+  const msgEl = document.querySelector(`.msg-actions[data-msg-id="${msgId}"]`);
+  if (msgEl) {
+    const rect = msgEl.getBoundingClientRect();
+    picker.style.top = rect.bottom + 'px';
+    picker.style.left = rect.left + 'px';
+  }
+  
+  picker.querySelectorAll('.emoji-btn').forEach(btn => {
+    btn.onclick = () => {
+      toggleReaction(msgId, btn.dataset.emoji);
+      picker.style.display = 'none';
+    };
+  });
+}
+
+async function toggleReaction(msgId, emoji) {
+  try {
+    await api.post(`/messages/${msgId}/reactions`, { emoji, action: 'toggle' });
+    const msg = findMessage(msgId);
+    if (msg) {
+      if (!msg.reactions) msg.reactions = [];
+      const existing = msg.reactions.find(r => r.emoji === emoji);
+      if (existing) {
+        msg.reactions = msg.reactions.filter(r => r.emoji !== emoji);
+      } else {
+        msg.reactions.push({ emoji, count: 1, users: [currentUser.displayName] });
+      }
+      if (selectedFriendId) renderMessages(selectedFriendId);
+    }
+  } catch (e) {
+    console.error('Reaction error:', e);
+  }
+}
+
+async function togglePinMessage(msgId, friendId) {
+  try {
+    await api.put(`/messages/${msgId}/pin`);
+    const msg = findMessage(msgId);
+    if (msg) {
+      msg.isPinned = !msg.isPinned;
+      msg.pinnedAt = msg.isPinned ? new Date().toISOString() : null;
+      renderMessages(friendId);
+    }
+  } catch (e) {
+    console.error('Pin error:', e);
+  }
+}
+
+function startEditingMessage(msg) {
+  const input = document.getElementById('message-input');
+  let content = msg.encrypted_content;
+  try { content = decodeURIComponent(escape(atob(msg.encrypted_content))); } catch (e) {}
+  input.value = content;
+  input.dataset.editMsgId = msg.id;
+  input.focus();
 }
 
 async function deleteMessage(msgId, friendId) {
@@ -1152,19 +1401,74 @@ async function deleteMessage(msgId, friendId) {
   try {
     const result = await api.delete(`/messages/${msgId}`);
     if (result.message) {
-      messages[friendId] = messages[friendId].filter(m => m.id !== msgId);
-      deletedMessageIds.add(msgId);
-      if (currentUser?.id) {
-        saveMessagesToStorage(currentUser.id);
-        saveDeletedIds(currentUser.id);
+      const msg = findMessage(msgId);
+      if (msg) {
+        msg.is_deleted = true;
       }
-      renderMessages(friendId);
-      showToast('Сообщение удалено', 'success');
-    } else {
-      showToast(result.error || 'Ошибка удаления', 'error');
+      if (selectedFriendId) renderMessages(selectedFriendId);
     }
   } catch (e) {
-    showToast('Ошибка удаления', 'error');
+    console.error('Delete error:', e);
+  }
+}
+
+async function editMessage(msgId, newContent) {
+  try {
+    const encrypted = btoa(unescape(encodeURIComponent(newContent)));
+    await api.put(`/messages/${msgId}`, { encryptedContent: encrypted });
+    const msg = findMessage(msgId);
+    if (msg) {
+      msg.encrypted_content = encrypted;
+      msg.edited_at = new Date().toISOString();
+      renderMessages(selectedFriendId);
+    }
+    document.getElementById('message-input').removeAttribute('data-edit-msg-id');
+  } catch (e) {
+    console.error('Edit error:', e);
+  }
+}
+
+function scrollToMessage(msgId) {
+  const el = document.querySelector(`.msg[data-id="${msgId}"]`);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('highlight');
+    setTimeout(() => el.classList.remove('highlight'), 2000);
+  }
+}
+
+function showLightbox(url) {
+  let lightbox = document.getElementById('lightbox');
+  if (!lightbox) {
+    lightbox = document.createElement('div');
+    lightbox.id = 'lightbox';
+    lightbox.innerHTML = '<img id="lightbox-img"><button id="lightbox-close">✕</button>';
+    document.body.appendChild(lightbox);
+  }
+  document.getElementById('lightbox-img').src = url;
+  lightbox.style.display = 'flex';
+  document.getElementById('lightbox-close').onclick = () => lightbox.style.display = 'none';
+  lightbox.onclick = (e) => { if (e.target === lightbox) lightbox.style.display = 'none'; };
+}
+
+function showSearch() {
+  document.getElementById('search-modal').classList.add('active');
+}
+
+async function searchMessages(query) {
+  if (!query) return;
+  try {
+    const result = await api.get(`/messages/search?q=${encodeURIComponent(query)}`);
+    document.getElementById('search-results').innerHTML = result.messages.map(m => {
+      let content = m.encryptedContent;
+      try { content = decodeURIComponent(escape(atob(m.encryptedContent))); } catch (e) {}
+      return `<div class="search-result" data-msg-id="${m.id}">
+        <div class="search-result-head">${escapeHtml(m.senderName)} - ${formatTime(m.createdAt)}</div>
+        <div class="search-result-text">${escapeHtml(content.substring(0, 100))}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    console.error('Search error:', e);
   }
 }
 
@@ -1187,17 +1491,116 @@ function getStatusIcon(status) {
   }
 }
 
-function showTypingIndicator(userId) {
+function showTypingIndicator(userId, userName) {
   const indicator = document.getElementById('typing-indicator');
   const friend = friends.find(f => f.id === userId);
-  if (indicator && friend) {
-    indicator.textContent = `${friend.display_name || friend.email} печатает...`;
+  const name = userName || friend?.display_name || friend?.email || 'User';
+  if (indicator) {
+    indicator.textContent = `${name} печатает...`;
     indicator.style.display = 'block';
     clearTimeout(window.typingTimeout);
     window.typingTimeout = setTimeout(() => {
       indicator.style.display = 'none';
     }, 2000);
   }
+}
+
+function setupNewFeatures() {
+  document.getElementById('search-close-btn')?.addEventListener('click', () => {
+    document.getElementById('search-modal').classList.remove('active');
+  });
+  
+  document.getElementById('search-messages-input')?.addEventListener('input', (e) => {
+    searchMessages(e.target.value);
+  });
+  
+  document.addEventListener('click', (e) => {
+    const picker = document.getElementById('emoji-picker');
+    if (picker && !e.target.closest('.emoji-picker') && !e.target.closest('.react-btn')) {
+      picker.style.display = 'none';
+    }
+  });
+  
+  document.querySelectorAll('.search-result').forEach(el => {
+    el.addEventListener('click', () => {
+      const msgId = el.dataset.msgId;
+      const friendId = selectedFriendId;
+      if (friendId) {
+        document.getElementById('search-modal').classList.remove('active');
+        openChat(friendId);
+        setTimeout(() => scrollToMessage(msgId), 300);
+      }
+    });
+  });
+}
+
+function setupGifPicker() {
+  const modal = document.getElementById('gif-picker-modal');
+  document.getElementById('gif-btn')?.addEventListener('click', () => {
+    modal.classList.add('active');
+    searchGifs('');
+  });
+  
+  document.getElementById('gif-close-btn')?.addEventListener('click', () => {
+    modal.classList.remove('active');
+  });
+  
+  document.getElementById('gif-search-input')?.addEventListener('input', (e) => {
+    searchGifs(e.target.value);
+  });
+}
+
+async function searchGifs(query) {
+  const container = document.getElementById('gif-results');
+  if (!query) {
+    query = 'funny';
+  }
+  
+  const TENOR_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
+  
+  try {
+    const response = await fetch(`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_KEY}&limit=20`);
+    const data = await response.json();
+    container.innerHTML = data.results?.map(gif => 
+      `<img src="${gif.media_formats?.tinygif?.url}" data-gif-url="${gif.media_formats?.gif?.url}" data-preview="${gif.media_formats?.tinygif?.url}">`
+    ).join('') || '';
+    
+    container.querySelectorAll('img').forEach(img => {
+      img.onclick = () => sendGif(img.dataset.gifUrl);
+    });
+  } catch (e) {
+    container.innerHTML = '<p style="color:var(--txF)">Ошибка загрузки GIF</p>';
+  }
+}
+
+async function sendGif(gifUrl) {
+  if (!selectedFriendId) return;
+  
+  const tempId = Date.now();
+  const messageData = {
+    recipientId: selectedFriendId,
+    encryptedContent: btoa(unescape(encodeURIComponent('GIF'))),
+    contentType: 'gif',
+    tempId,
+    fileUrl: gifUrl
+  };
+  
+  if (!messages[selectedFriendId]) messages[selectedFriendId] = [];
+  
+  messages[selectedFriendId].push({
+    id: tempId,
+    sender_id: currentUser.id,
+    encrypted_content: btoa(unescape(encodeURIComponent('GIF'))),
+    content_type: 'gif',
+    file_url: gifUrl,
+    status: 'sent',
+    created_at: new Date().toISOString(),
+    temp: true
+  });
+  
+  renderMessages(selectedFriendId);
+  document.getElementById('gif-picker-modal').classList.remove('active');
+  socket.emit('message', messageData);
 }
 
 async function handleFileUpload(e) {
@@ -1562,7 +1965,6 @@ function renderProfileView(container) {
     
     <div class="logout-section">
       <button class="btn btn-logout" id="settings-logout-btn">Выйти из аккаунта</button>
-      <button class="btn btn-danger" id="delete-account-btn" style="width:100%;margin-top:8px;opacity:.7;font-size:12px">Удалить аккаунт</button>
     </div>
   `;
   
@@ -1609,7 +2011,7 @@ function renderProfileView(container) {
         updateUserUI();
         
         const preview = document.getElementById('edit-avatar-preview');
-        preview.innerHTML = `<img src="${escapeAttr(data.user.avatarUrl)}">`;
+        preview.innerHTML = `<img src="${data.user.avatarUrl}" class="avatar-img" alt="Avatar">`;
         
         showToast('Аватар обновлён', 'success');
       } else {
@@ -1646,38 +2048,6 @@ function renderProfileView(container) {
   document.getElementById('settings-logout-btn').addEventListener('click', () => {
     closeSettings();
     logout();
-  });
-  
-  document.getElementById('delete-account-btn').addEventListener('click', () => {
-    openModal(`
-      <div class="modal-hdr"><h2>Удалить аккаунт</h2><button class="modal-close" id="modal-close-btn">&times;</button></div>
-      <div class="modal-body">
-        <p style="color:var(--rd);margin-bottom:12px;font-weight:600">Это действие необратимо!</p>
-        <p style="color:var(--txM);margin-bottom:16px;font-size:13px">Все ваши сообщения, друзья и данные будут удалены.</p>
-        <div class="fg"><label>Введите пароль для подтверждения</label><input type="password" id="delete-account-password" placeholder="••••••••"></div>
-      </div>
-      <div class="modal-footer"><button class="btn btn-ghost" id="cancel-delete">Отмена</button><button class="btn btn-danger" id="confirm-delete">Удалить</button></div>
-    `);
-    
-    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
-    document.getElementById('cancel-delete').addEventListener('click', closeModal);
-    document.getElementById('confirm-delete').addEventListener('click', async () => {
-      const password = document.getElementById('delete-account-password').value;
-      if (!password) { showToast('Введите пароль', 'error'); return; }
-      
-      try {
-        await api.delete('/auth/account', { password });
-        closeModal();
-        showToast('Аккаунт удалён', 'success');
-        setTimeout(() => {
-          accessToken = null;
-          sessionStorage.clear();
-          location.reload();
-        }, 1000);
-      } catch (e) {
-        showToast(e.message || 'Ошибка', 'error');
-      }
-    });
   });
 }
 
