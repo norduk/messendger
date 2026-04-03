@@ -57,7 +57,7 @@ export default {
     url: process.env.SYNC_URL || 'http://localhost:3002'
   },
   
-  tenor: {
-    apiKey: process.env.TENOR_API_KEY || ''
+  giphy: {
+    apiKey: process.env.GIPHY_API_KEY || ''
   }
 };

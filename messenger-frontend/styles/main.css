@@ -253,21 +253,195 @@ a{color:var(--txL);text-decoration:none}
 .call-controls .btn-danger{background:var(--rd)}
 .call-controls .btn-danger:hover{background:#c00}
 
-/* ═══ MOBILE ═══ */
+/* ═══ RESPONSIVE DESIGN ═══ */
+/* Mobile First + Adaptive */
+
+/* Large Desktop */
+@media (min-width: 1440px) {
+  :root { --sw: 280px }
+  .chat-area-inner { max-width: 900px }
+  .msg { max-width: 65% }
+  .msg-img { max-width: 280px; max-height: 200px }
+}
+
+/* Desktop */
+@media (min-width: 1200px) {
+  .sidebar { width: 260px }
+  .chat-area-inner { max-width: 850px }
+}
+
+/* Tablet Landscape */
+@media (min-width: 1024px) and (max-width: 1199px) {
+  :root { --sw: 240px }
+  .chat-area-inner { max-width: 780px }
+}
+
+/* Tablet Portrait */
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root { --sw: 220px }
+  .sidebar { min-width: 180px }
+  .chat-area-inner { max-width: 100%; padding: 12px 16px }
+  .msg { max-width: 80% }
+  .msg-img { max-width: 220px }
+  .auth-box { width: 380px }
+}
+
+/* Large Mobile */
+@media (max-width: 767px) {
+  :root { --sw: 100%; --hh: 52px }
+  .mobile-menu { display: flex }
+  .back-btn { display: flex }
+  .sidebar { 
+    width: 100%; 
+    position: fixed; 
+    left: 0; 
+    top: 0; 
+    bottom: 0; 
+    z-index: 10; 
+    transform: translateX(-100%); 
+    transition: transform .3s ease 
+  }
+  .sidebar.open { transform: translateX(0) }
+  .chat-area { width: 100% }
+  .chat-area-inner { padding: 8px }
+  .msg { max-width: 90%; padding: 4px 10px }
+  .msg.mine { border-radius: 16px 16px 4px 16px }
+  .msg.other { border-radius: 16px 16px 16px 4px }
+  .msg-img { max-width: 180px; max-height: 140px }
+  .modal-box { margin: 12px; max-height: 85vh; width: calc(100% - 24px) }
+  .auth-box { width: calc(100% - 24px); padding: 20px }
+  .contacts-list { padding: 0 4px }
+  .contact { padding: 8px 10px }
+  .chat-hdr { padding: 0 12px }
+  .chat-hdr-info { gap: 6px }
+  .user-name { font-size: 14px }
+  .typing { padding: 0 12px 4px; font-size: 11px }
+  .input-bar { padding: 0 8px 12px }
+  .input-wrap { padding: 2px 8px }
+  .msg-input { font-size: 14px; padding: 6px 0 }
+  .toast-box { bottom: 12px; right: 12px; left: 12px }
+  .toast { width: 100% }
+  .settings-body { padding: 12px }
+  .settings-tabs { padding: 8px 12px; overflow-x: auto }
+  .settings-tab { padding: 6px 10px; font-size: 12px; white-space: nowrap }
+}
+
+/* Small Mobile */
+@media (max-width: 480px) {
+  :root { --hh: 48px }
+  .auth-box { padding: 16px }
+  .auth-logo { margin-bottom: 16px }
+  .auth-logo-icon { width: 36px; height: 36px; font-size: 18px }
+  .auth-logo h1 { font-size: 18px }
+  .fg { margin-bottom: 12px }
+  .fg label { font-size: 11px }
+  .fg input { padding: 8px; font-size: 14px }
+  .btn { padding: 6px 12px; font-size: 13px; height: 34px }
+  .av { width: 28px; height: 28px; font-size: 11px }
+  .av.lg { width: 36px; height: 36px; font-size: 14px }
+  .contact { padding: 6px 8px }
+  .contact-name { font-size: 13px }
+  .contact-preview { font-size: 11px }
+  .unread { font-size: 9px; padding: 1px 4px }
+  .msg { gap: 6px }
+  .msg-sender { font-size: 12px }
+  .msg-text { font-size: 13px }
+  .msg-time { font-size: 9px }
+  .msg-img { max-width: 150px; max-height: 120px }
+  .send-btn { width: 28px; height: 28px; font-size: 14px }
+  .attach-btn { font-size: 16px }
+  .add-friend-btn { margin: 6px 8px 8px; padding: 6px; font-size: 12px }
+  .profile-av { width: 64px; height: 64px; font-size: 24px }
+  .profile-name { font-size: 18px }
+  .settings-row { padding: 8px 0 }
+  .settings-label { font-size: 13px }
+  .call-modal-content { padding: 16px }
+  .call-status { font-size: 20px }
+  .call-controls .btn-icon { width: 48px; height: 48px; font-size: 20px }
+}
+
+/* Ultra Small */
+@media (max-width: 360px) {
+  .auth-tabs .tab-btn { font-size: 12px; padding: 6px }
+  .msg { max-width: 95% }
+  .msg-img { max-width: 120px }
+  .typing-dots span { width: 3px; height: 3px }
+}
+
+/* Landscape Mobile */
+@media (max-height: 500px) and (orientation: landscape) {
+  .call-modal-content { padding: 10px }
+  .call-controls { margin-top: 10px; gap: 12px }
+  .call-controls .btn-icon { width: 40px; height: 40px }
+  .call-status { font-size: 18px; margin-bottom: 10px }
+  #local-video { width: 80px; height: 60px }
+}
+
+/* Notched Devices (iPhone X+) */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .mobile-menu { 
+    top: calc(10px + env(safe-area-inset-top)); 
+    left: calc(10px + env(safe-area-inset-left)) 
+  }
+  .chat-hdr { 
+    padding-top: env(safe-area-inset-top); 
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right))
+  }
+  .input-bar { 
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-bottom: max(12px, env(safe-area-inset-bottom))
+  }
+  .toast-box { 
+    bottom: max(12px, env(safe-area-inset-bottom));
+    right: max(12px, env(safe-area-inset-right));
+    left: max(12px, env(safe-area-inset-left))
+  }
+  #call-modal { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom) }
+}
+
+/* Touch Devices */
+@media (hover: none) and (pointer: coarse) {
+  .btn, .btn-icon, .contact, .msg-action-btn { 
+    min-height: 44px; 
+    min-width: 44px 
+  }
+  .msg-actions { display: flex !important }
+  .msg:hover .msg-actions { display: flex }
+}
+
+/* High DPI */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .msg-img, .av img { image-rendering: -webkit-optimize-contrast }
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Dark/Light Mode (future) */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg3: #f2f3f5;
+    --bg2: #ffffff;
+    --bg1: #f2f3f5;
+    --bgIn: #e3e5e8;
+    --bgHv: #e4e6eb;
+    --bgAc: #d8dadf;
+    --bgMsg: #e4e6eb;
+    --tx: #1c1e21;
+    --txM: #606770;
+    --txF: #606770;
+    --bd: #d8dadf;
+    --bdS: #bec2c9;
+  }
+}
+
+/* Utilities */
 .mobile-menu{display:none;position:fixed;top:10px;left:10px;z-index:5;width:36px;height:36px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);color:var(--tx);font-size:18px;align-items:center;justify-content:center}
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9}.overlay.on{display:block}
-
-@media(max-width:768px){
-  .mobile-menu{display:flex}.back-btn{display:flex}
-  .sidebar{width:100%;position:absolute;left:0;top:0;bottom:0;z-index:10;transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:translateX(0)}
-  .chat-area{width:100%}.msg{max-width:95%}
-  .modal-box{margin:12px;max-height:85vh}
-}
-@media(max-width:480px){
-  .contact{padding:6px}.av{width:28px;height:28px;font-size:11px}
-  .messages{padding:4px 0}.msg{padding:2px 10px}
-  .input-bar{padding:0 8px 12px}.input-wrap{padding:2px 8px}
-  .send-btn{width:28px;height:28px;font-size:14px}.attach-btn{font-size:16px}
-  .add-friend-btn{margin:6px 8px 8px;padding:6px;font-size:12px;width:calc(100% - 16px)}
-  .auth-box{padding:20px;margin:12px}
-}
